@@ -1,0 +1,351 @@
+/* ============================================================
+   LINK MART — Design System
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ── CSS Custom Properties ── */
+:root {
+  /* Brand Colors */
+  --color-primary: #0F2A44;
+  --color-primary-hover: #1a3d5c;
+  --color-primary-light: #e8f0f8;
+  --color-accent: #C9A24D;
+  --color-accent-hover: #b8923d;
+  --color-accent-light: #fdf6e7;
+
+  /* Background */
+  --color-bg: #F7F9FC;
+  --color-bg-card: #ffffff;
+  --color-bg-sidebar: #0F2A44;
+  --color-bg-hover: #f0f4f8;
+  --color-bg-input: #ffffff;
+  --color-bg-overlay: rgba(15, 42, 68, 0.45);
+
+  /* Text */
+  --color-text: #1F2933;
+  --color-text-secondary: #52606D;
+  --color-text-muted: #9AA5B1;
+  --color-text-inverse: #ffffff;
+  --color-text-sidebar: rgba(255,255,255,0.85);
+
+  /* Borders */
+  --color-border: #E4E9EF;
+  --color-border-strong: #CBD5E0;
+
+  /* Status */
+  --color-success: #22C55E;
+  --color-success-bg: #F0FDF4;
+  --color-success-text: #16A34A;
+  --color-warning: #F59E0B;
+  --color-warning-bg: #FFFBEB;
+  --color-warning-text: #B45309;
+  --color-danger: #EF4444;
+  --color-danger-bg: #FEF2F2;
+  --color-danger-text: #DC2626;
+  --color-info: #3B82F6;
+  --color-info-bg: #EFF6FF;
+  --color-info-text: #1D4ED8;
+  --color-purple: #8B5CF6;
+  --color-purple-bg: #F5F3FF;
+  --color-purple-text: #6D28D9;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.05);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,0.12), 0 4px 8px rgba(0,0,0,0.06);
+  --shadow-xl: 0 20px 60px rgba(0,0,0,0.15);
+  --shadow-panel: -4px 0 24px rgba(0,0,0,0.10);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --header-height: 62px;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Table density */
+  --table-row-padding: 11px 14px;
+
+  /* Z-index */
+  --z-sidebar: 100;
+  --z-header: 99;
+  --z-panel: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+  --z-dropdown: 250;
+}
+
+/* ── Dark Mode ── */
+[data-theme="dark"] {
+  --color-bg: #0D1B2A;
+  --color-bg-card: #132236;
+  --color-bg-sidebar: #091625;
+  --color-bg-hover: #1a2f45;
+  --color-bg-input: #1a2f45;
+  --color-bg-overlay: rgba(5, 15, 28, 0.6);
+  --color-text: #E8EDF2;
+  --color-text-secondary: #9AA5B1;
+  --color-text-muted: #627384;
+  --color-text-sidebar: rgba(255,255,255,0.80);
+  --color-border: #1E3347;
+  --color-border-strong: #2A4560;
+  --color-primary-light: #1a2f45;
+  --color-bg-overlay: rgba(5,12,22,0.6);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,0.4);
+  --shadow-panel: -4px 0 24px rgba(0,0,0,0.35);
+}
+
+/* ── Reset & Base ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html { font-size: 15px; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  transition: background var(--transition), color var(--transition);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: var(--radius-full); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+/* ── Focus ── */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ── Typography ── */
+h1 { font-size: 1.6rem; font-weight: 700; }
+h2 { font-size: 1.25rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+h4 { font-size: 0.95rem; font-weight: 600; }
+
+a { color: var(--color-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+input, textarea, select {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+  font-family: var(--font-sans);
+  line-height: 1;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+.btn-primary:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+
+.btn-accent {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+.btn-accent:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
+
+.btn-outline {
+  background: transparent;
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+.btn-outline:hover { background: var(--color-bg-hover); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-color: transparent;
+}
+.btn-ghost:hover { background: var(--color-bg-hover); color: var(--color-text); }
+
+.btn-danger {
+  background: var(--color-danger);
+  color: #fff;
+  border-color: var(--color-danger);
+}
+.btn-danger:hover { background: #DC2626; }
+
+.btn-sm { padding: 5px 10px; font-size: 0.8rem; border-radius: var(--radius-sm); }
+.btn-lg { padding: 11px 22px; font-size: 0.95rem; }
+.btn-icon { padding: 8px; border-radius: var(--radius-md); }
+.btn-icon.btn-sm { padding: 5px; border-radius: var(--radius-sm); }
+
+/* ── Form Elements ── */
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.form-input, .form-select, .form-textarea {
+  padding: 9px 12px;
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-input);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  transition: border-color var(--transition), box-shadow var(--transition);
+  width: 100%;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(201,162,77,0.15);
+}
+.form-textarea { resize: vertical; min-height: 80px; }
+.form-select { appearance: none; cursor: pointer; }
+.form-hint { font-size: 0.78rem; color: var(--color-text-muted); }
+.form-error { font-size: 0.78rem; color: var(--color-danger); }
+
+/* ── Card ── */
+.card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition);
+}
+.card:hover { box-shadow: var(--shadow-md); }
+.card-pad { padding: 20px 24px; }
+
+/* ── Badge / Status ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.badge-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* ── Checkbox ── */
+.checkbox {
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  border: 1.5px solid var(--color-border-strong);
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+/* ── Divider ── */
+.divider { height: 1px; background: var(--color-border); margin: 12px 0; }
+
+/* ── Utility ── */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+.text-muted { color: var(--color-text-muted); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-success { color: var(--color-success-text); }
+.text-danger { color: var(--color-danger-text); }
+.text-warning { color: var(--color-warning-text); }
+.text-accent { color: var(--color-accent); }
+.text-sm { font-size: 0.85rem; }
+.text-xs { font-size: 0.75rem; }
+.font-medium { font-weight: 500; }
+.font-semibold { font-weight: 600; }
+.font-bold { font-weight: 700; }
+.flex { display: flex; }
+.flex-1 { flex: 1; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2 { gap: 8px; }
+.gap-3 { gap: 12px; }
+.gap-4 { gap: 16px; }
+.mt-1 { margin-top: 4px; }
+.mt-2 { margin-top: 8px; }
+.mt-4 { margin-top: 16px; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-full { width: 100%; }
+
+/* ── Table Density ── */
+[data-density="compact"] { --table-row-padding: 7px 14px; }
+[data-density="comfortable"] { --table-row-padding: 11px 14px; }
+[data-density="spacious"] { --table-row-padding: 16px 14px; }
+
+/* ── Animations ── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-fade-in { animation: fadeIn var(--transition-slow) both; }
+.animate-slide-right { animation: slideInRight var(--transition-slow) both; }
+.animate-scale-in { animation: scaleIn var(--transition-slow) both; }
