@@ -1,18 +1,182 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Sun, Moon, Trash2, Download, Settings as SettingsIcon,
   Palette, Database, HardDrive, Mail, Sparkles, Plus, Edit,
-  Check, Loader2, Play, CheckCircle, AlertCircle, Trash, Key, Eye, EyeOff, Save
+  Check, Loader2, Play, CheckCircle, AlertCircle, Trash, Key, Eye, EyeOff, Save,
+  Cloud, CloudOff, RefreshCw, Upload, Wifi, WifiOff
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import ConfirmModal from '../components/shared/ConfirmModal';
+import { checkConnection } from '../lib/db';
+import { isSupabaseEnabled } from '../lib/db';
+
+// ─── Database Tab Component ───────────────────────────────────────────────────
+function DatabaseTab({ publishers, leads, workLog, plannerDays, emailHistory, dataSheets, activity, syncStatus, migrateLocalToSupabase, syncFromCloud, toast }) {
+  const [connStatus, setConnStatus] = useState(null); // null | 'checking' | {ok, reason}
+  const [migrating, setMigrating] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  useEffect(() => {
+    if (!isSupabaseEnabled) { setConnStatus({ ok: false, reason: 'not_configured' }); return; }
+    setConnStatus('checking');
+    checkConnection().then(setConnStatus);
+  }, []);
+
+  const handleMigrate = async () => {
+    setMigrating(true);
+    const result = await migrateLocalToSupabase();
+    setMigrating(false);
+    if (result.ok) {
+      toast('success', 'Migration Complete', 'All local data has been uploaded to Supabase.');
+    } else {
+      toast('error', 'Migration Failed', result.error || 'Please check your Supabase connection.');
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    const result = await syncFromCloud();
+    setSyncing(false);
+    if (result.ok) {
+      toast('success', 'Synced from Cloud', 'Data refreshed from Supabase.');
+    } else {
+      toast('error', 'Sync Failed', result.error || 'Please check your Supabase connection.');
+    }
+  };
+
+  const isOnline = connStatus?.ok === true;
+  const isChecking = connStatus === 'checking';
+  const isBusy = syncStatus === 'loading' || syncStatus === 'syncing' || migrating || syncing;
+
+  const tables = [
+    { label: 'Publishers', count: publishers.length, icon: '🏢' },
+    { label: 'CRM Leads', count: leads.length, icon: '🎯' },
+    { label: 'Work Log', count: workLog.length, icon: '📦' },
+    { label: 'Planner Days', count: Object.keys(plannerDays).length, icon: '📅' },
+    { label: 'Email History', count: emailHistory.length, icon: '✉️' },
+    { label: 'Data Sheets', count: dataSheets.length, icon: '📊' },
+    { label: 'Activity Log', count: activity.length, icon: '⚡' },
+  ];
+
+  return (
+    <div>
+      {/* Connection Status Card */}
+      <div className="card card-pad" style={{ marginBottom: 16, borderLeft: `4px solid ${isOnline ? '#22C55E' : isChecking ? '#F59E0B' : '#EF4444'}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 10,
+            background: isOnline ? '#DCFCE7' : isChecking ? '#FEF3C7' : '#FEE2E2',
+            display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}>
+            {isChecking ? <Loader2 size={18} style={{ color: '#F59E0B', animation: 'spin 1s linear infinite' }} /> :
+             isOnline ? <Cloud size={18} style={{ color: '#22C55E' }} /> :
+             <CloudOff size={18} style={{ color: '#EF4444' }} />}
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>
+              {isChecking ? 'Checking connection...' : isOnline ? 'Supabase Connected ✓' : 'Supabase Not Connected'}
+            </div>
+            <div style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
+              {isSupabaseEnabled
+                ? `https://jyxodlfhhulpcbnvlmay.supabase.co · South Asia (Mumbai)`
+                : 'Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file'}
+            </div>
+          </div>
+          <div style={{ marginLeft: 'auto' }}>
+            <span style={{
+              padding: '4px 10px', borderRadius: 20, fontSize: '0.72rem', fontWeight: 700,
+              background: isOnline ? '#DCFCE7' : '#FEE2E2',
+              color: isOnline ? '#15803D' : '#DC2626',
+            }}>
+              {syncStatus === 'loading' ? 'LOADING...' : syncStatus === 'syncing' ? 'SYNCING...' : isOnline ? 'HEALTHY' : 'OFFLINE'}
+            </span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-primary"
+            id="migrate-local-btn"
+            onClick={handleMigrate}
+            disabled={isBusy || !isOnline}
+            style={{ flex: 1, minWidth: 180 }}
+          >
+            {migrating ? <Loader2 size={14} style={{ marginRight: 6, animation: 'spin 1s linear infinite' }} /> : <Upload size={14} style={{ marginRight: 6 }} />}
+            {migrating ? 'Uploading to Cloud...' : 'Migrate Local Data → Supabase'}
+          </button>
+          <button
+            className="btn btn-outline"
+            id="sync-from-cloud-btn"
+            onClick={handleSync}
+            disabled={isBusy || !isOnline}
+          >
+            {syncing ? <Loader2 size={14} style={{ marginRight: 6, animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={14} style={{ marginRight: 6 }} />}
+            {syncing ? 'Syncing...' : 'Re-sync from Cloud'}
+          </button>
+        </div>
+
+        {!isOnline && !isChecking && (
+          <div style={{ marginTop: 12, padding: '8px 12px', background: '#FEF3C7', borderRadius: 8, fontSize: '0.78rem', color: '#92400E' }}>
+            💡 <strong>Tip:</strong> Make sure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in your <code>.env</code> file and in Vercel Dashboard → Settings → Environment Variables.
+          </div>
+        )}
+      </div>
+
+      {/* Record Counts */}
+      <div className="card card-pad" style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: '0.78rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: 14, letterSpacing: '0.05em' }}>
+          Local Data Summary
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
+          {tables.map(({ label, count, icon }) => (
+            <div key={label} style={{
+              padding: '12px 14px', borderRadius: 10,
+              background: 'var(--color-bg-hover)', border: '1px solid var(--color-border)',
+              display: 'flex', alignItems: 'center', gap: 10
+            }}>
+              <span style={{ fontSize: '1.2rem' }}>{icon}</span>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '1.1rem', lineHeight: 1 }}>{count}</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)', marginTop: 2 }}>{label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* How it works */}
+      <div className="card card-pad" style={{ background: 'var(--color-bg-hover)' }}>
+        <div style={{ fontSize: '0.78rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: 12, letterSpacing: '0.05em' }}>
+          How Sync Works
+        </div>
+        {[
+          { icon: '⚡', title: 'Instant Local Cache', desc: 'Every change updates localStorage immediately — the UI is always fast.' },
+          { icon: '☁️', title: 'Background Cloud Sync', desc: 'Every add/edit/delete is silently pushed to Supabase in the background.' },
+          { icon: '🔄', title: 'Cloud-First on Load', desc: 'When you open the app, fresh data is pulled from Supabase (falls back to localStorage if offline).' },
+          { icon: '📤', title: 'Migrate Button', desc: 'Use "Migrate Local Data" once to upload all existing localStorage data to Supabase.' },
+        ].map(({ icon, title, desc }) => (
+          <div key={title} style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+            <span style={{ fontSize: '1.1rem', flexShrink: 0, marginTop: 1 }}>{icon}</span>
+            <div>
+              <div style={{ fontSize: '0.84rem', fontWeight: 600 }}>{title}</div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>{desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
+
   const {
     theme, toggleTheme, density, setDensity,
-    publishers, leads, activity, stats,
+    publishers, leads, workLog, plannerDays, emailHistory, dataSheets, activity, stats,
     emailAccounts, addEmailAccount, updateEmailAccount, deleteEmailAccount, setDefaultAccount,
-    aiSettings, saveAiSettings, toast
+    aiSettings, saveAiSettings, toast,
+    syncStatus, migrateLocalToSupabase, syncFromCloud,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState('general'); // 'general' | 'accounts' | 'ai'
@@ -236,6 +400,13 @@ export default function Settings() {
           id="settings-tab-ai"
         >
           <Sparkles size={13} style={{ marginRight: 4 }} /> AI Prompt Settings
+        </button>
+        <button
+          className={`country-tab ${activeTab === 'database' ? 'active' : ''}`}
+          onClick={() => setActiveTab('database')}
+          id="settings-tab-database"
+        >
+          <Cloud size={13} style={{ marginRight: 4 }} /> Database
         </button>
       </div>
 
@@ -770,6 +941,21 @@ ${aiForm.avoidWords ? `Avoid words: ${aiForm.avoidWords}\n` : ''}${aiForm.compan
           </form>
         </div>
       )}
+
+      {/* ─── TAB 4: DATABASE ─── */}
+      {activeTab === 'database' && <DatabaseTab
+        publishers={publishers}
+        leads={leads}
+        workLog={workLog}
+        plannerDays={plannerDays}
+        emailHistory={emailHistory}
+        dataSheets={dataSheets}
+        activity={activity}
+        syncStatus={syncStatus}
+        migrateLocalToSupabase={migrateLocalToSupabase}
+        syncFromCloud={syncFromCloud}
+        toast={toast}
+      />}
 
       {/* About */}
       <div className="card card-pad" style={{ borderTop: '3px solid var(--color-accent)', marginTop: 24 }}>
