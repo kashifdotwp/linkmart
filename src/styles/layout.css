@@ -313,8 +313,15 @@
 }
 .search-input::placeholder { color: var(--color-text-muted); }
 
+#mobile-menu-btn {
+  display: none;
+}
+
 /* ── Responsive ── */
 @media (max-width: 768px) {
+  #mobile-menu-btn {
+    display: flex;
+  }
   .sidebar {
     position: fixed;
     left: -100%;
@@ -330,3 +337,4 @@
   .page-content { padding: 16px; }
   .header { padding: 0 16px; }
 }
+

@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Sun, Moon, Menu, ChevronDown, User, LogOut, Settings, HelpCircle, Shield } from 'lucide-react';
+import { Search, Sun, Moon, Menu, ChevronDown, User, LogOut, Settings, HelpCircle, Shield, Cloud, CloudOff, RefreshCw } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 export default function Header({ onMenuToggle }) {
-  const { theme, toggleTheme, globalSearch, setGlobalSearch } = useApp();
+  const { theme, toggleTheme, globalSearch, setGlobalSearch, syncStatus, isSupabaseEnabled } = useApp();
   const { currentUser, logout, isAdmin } = useAuth();
   const [userOpen, setUserOpen] = useState(false);
   const userRef = useRef(null);
@@ -34,7 +34,7 @@ export default function Header({ onMenuToggle }) {
   return (
     <header className="header">
       {/* Mobile menu toggle */}
-      <button className="header-icon-btn" onClick={onMenuToggle} style={{ display: 'none' }}
+      <button className="header-icon-btn" onClick={onMenuToggle}
         id="mobile-menu-btn">
         <Menu size={18} />
       </button>
@@ -62,6 +62,42 @@ export default function Header({ onMenuToggle }) {
         >
           {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
         </button>
+
+        {/* Supabase Sync Status */}
+        {isSupabaseEnabled ? (
+          <div
+            id="supabase-status-indicator"
+            className="header-icon-btn"
+            style={{
+              borderColor: syncStatus === 'error' ? 'var(--color-danger)' : 'var(--color-border)',
+              cursor: 'default',
+              position: 'relative'
+            }}
+            title={
+              syncStatus === 'loading' ? 'Loading database...' :
+              syncStatus === 'syncing' ? 'Syncing to cloud...' :
+              syncStatus === 'error' ? 'Cloud connection error!' :
+              'Supabase Connected & Synced'
+            }
+          >
+            {syncStatus === 'loading' || syncStatus === 'syncing' ? (
+              <RefreshCw size={16} style={{ color: 'var(--color-accent)', animation: 'spin 1.5s linear infinite' }} />
+            ) : syncStatus === 'error' ? (
+              <CloudOff size={16} style={{ color: 'var(--color-danger)' }} />
+            ) : (
+              <Cloud size={16} style={{ color: '#22C55E' }} />
+            )}
+          </div>
+        ) : (
+          <div
+            id="supabase-status-indicator"
+            className="header-icon-btn text-danger"
+            style={{ cursor: 'default', opacity: 0.5 }}
+            title="Supabase Offline (No credentials)"
+          >
+            <CloudOff size={16} />
+          </div>
+        )}
 
         {/* User avatar dropdown */}
         <div className="dropdown-wrapper" ref={userRef}>
