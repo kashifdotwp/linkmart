@@ -1,7 +1,10 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
+import { AuthProvider } from './context/AuthContext';
+import ProtectedRoute from './components/layout/ProtectedRoute';
 import AppShell from './components/layout/AppShell';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Publishers from './pages/Publishers';
 import CRM from './pages/CRM';
@@ -18,21 +21,34 @@ import './styles/components.css';
 
 export default function App() {
   return (
-    <AppProvider>
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <Routes>
-          <Route path="/" element={<AppShell />}>
-            <Route index element={<Dashboard />} />
-            <Route path="publishers" element={<Publishers />} />
-            <Route path="crm" element={<CRM />} />
-            <Route path="worklog" element={<WorkLog />} />
-            <Route path="planner" element={<DailyPlanner />} />
-            <Route path="datacenter" element={<DataCenter />} />
-            <Route path="config" element={<ConfigPanel />} />
-            <Route path="settings" element={<Settings />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </AppProvider>
+    <AuthProvider>
+      <AppProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <Routes>
+            {/* Public route */}
+            <Route path="/login" element={<Login />} />
+
+            {/* Protected routes — wrapped in auth guard */}
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <AppShell />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Dashboard />} />
+              <Route path="publishers" element={<Publishers />} />
+              <Route path="crm" element={<CRM />} />
+              <Route path="worklog" element={<WorkLog />} />
+              <Route path="planner" element={<DailyPlanner />} />
+              <Route path="datacenter" element={<DataCenter />} />
+              <Route path="config" element={<ConfigPanel />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AppProvider>
+    </AuthProvider>
   );
 }

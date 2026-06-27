@@ -3,14 +3,272 @@ import {
   Sun, Moon, Trash2, Download, Settings as SettingsIcon,
   Palette, Database, HardDrive, Mail, Sparkles, Plus, Edit,
   Check, Loader2, Play, CheckCircle, AlertCircle, Trash, Key, Eye, EyeOff, Save,
-  Cloud, CloudOff, RefreshCw, Upload, Wifi, WifiOff
+  Cloud, CloudOff, RefreshCw, Upload, Wifi, WifiOff, Users, UserPlus, Shield, UserX
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/AuthContext';
 import ConfirmModal from '../components/shared/ConfirmModal';
 import { checkConnection } from '../lib/db';
 import { isSupabaseEnabled } from '../lib/db';
 
+// ─── Team Management Tab ───────────────────────────────────────────────────────
+function TeamTab({ toast }) {
+  const { currentUser, isAdmin } = useAuth();
+  const [users, setUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'member' });
+  const [showPass, setShowPass] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  const loadUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const resp = await fetch('/api/admin/list-users');
+      const data = await resp.json();
+      if (data.ok) setUsers(data.users);
+      else toast('error', 'Failed to load users', data.error);
+    } catch {
+      toast('error', 'Network Error', 'Could not load team members.');
+    }
+    setLoadingUsers(false);
+  };
+
+  useEffect(() => { loadUsers(); }, []);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!form.email || !form.password) { setFormError('Email and password are required.'); return; }
+    if (form.password.length < 8) { setFormError('Password must be at least 8 characters.'); return; }
+    setSubmitting(true); setFormError('');
+    try {
+      const resp = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        toast('success', 'User Created', `${form.email} can now log in.`);
+        setForm({ name: '', email: '', password: '', role: 'member' });
+        setShowForm(false);
+        loadUsers();
+      } else {
+        setFormError(data.error || 'Failed to create user.');
+      }
+    } catch (err) {
+      setFormError('Network error. Please try again.');
+    }
+    setSubmitting(false);
+  };
+
+  const handleDelete = async (userId, email) => {
+    if (!window.confirm(`Delete user "${email}"? They will lose all access immediately.`)) return;
+    setDeletingId(userId);
+    try {
+      const resp = await fetch('/api/admin/delete-user', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        toast('success', 'User Deleted', `${email} has been removed.`);
+        loadUsers();
+      } else {
+        toast('error', 'Delete Failed', data.error);
+      }
+    } catch {
+      toast('error', 'Network Error', 'Could not delete user.');
+    }
+    setDeletingId(null);
+  };
+
+  const formatDate = (iso) => {
+    if (!iso) return 'Never';
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  if (!isAdmin) {
+    return (
+      <div className="card card-pad" style={{ textAlign: 'center', padding: 40 }}>
+        <Shield size={40} style={{ color: 'var(--color-text-muted)', marginBottom: 12 }} />
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>Admin Access Required</div>
+        <div style={{ color: 'var(--color-text-muted)', fontSize: '0.84rem' }}>
+          Only admins can manage team members.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="card card-pad" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Users size={18} style={{ color: 'var(--color-primary)' }} />
+            Team Members ({users.length})
+          </div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginTop: 3 }}>
+            Create accounts for your team. All members share the same workspace data.
+          </div>
+        </div>
+        <button
+          className="btn btn-primary"
+          id="add-team-member-btn"
+          onClick={() => { setShowForm(s => !s); setFormError(''); }}
+          style={{ flexShrink: 0 }}
+        >
+          <UserPlus size={14} style={{ marginRight: 6 }} />
+          {showForm ? 'Cancel' : 'Add Member'}
+        </button>
+      </div>
+
+      {/* Create Form */}
+      {showForm && (
+        <div className="card card-pad" style={{ marginBottom: 16, borderLeft: '4px solid var(--color-primary)' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.88rem', marginBottom: 16 }}>
+            <UserPlus size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+            Create New Team Member
+          </div>
+          {formError && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FEE2E2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '8px 12px', marginBottom: 14, color: '#DC2626', fontSize: '0.82rem' }}>
+              <AlertCircle size={14} /> {formError}
+            </div>
+          )}
+          <form onSubmit={handleCreate}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Full Name</label>
+                <input className="form-input" placeholder="John Doe" value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Role</label>
+                <select className="form-input" value={form.role}
+                  onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Email Address *</label>
+                <input className="form-input" type="email" placeholder="team@agency.com" value={form.email}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Password * (min 8 chars)</label>
+                <div style={{ position: 'relative' }}>
+                  <input className="form-input" type={showPass ? 'text' : 'password'}
+                    placeholder="Secure password" value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    style={{ paddingRight: 40 }} required />
+                  <button type="button" onClick={() => setShowPass(p => !p)}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)' }}>
+                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button type="submit" className="btn btn-primary" disabled={submitting} id="create-user-submit-btn">
+              {submitting ? <><Loader2 size={14} style={{ marginRight: 6, animation: 'spin 1s linear infinite' }} /> Creating...</> : <><Check size={14} style={{ marginRight: 6 }} /> Create Account</>}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Users List */}
+      <div className="card card-pad">
+        {loadingUsers ? (
+          <div style={{ textAlign: 'center', padding: 30 }}>
+            <Loader2 size={24} style={{ color: 'var(--color-primary)', animation: 'spin 1s linear infinite' }} />
+            <div style={{ marginTop: 8, fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>Loading team members...</div>
+          </div>
+        ) : users.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 30 }}>
+            <Users size={36} style={{ color: 'var(--color-text-muted)', marginBottom: 10 }} />
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>No team members yet</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>Click "Add Member" to create the first account.</div>
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid var(--color-border)' }}>
+                {['Member', 'Role', 'Created', 'Last Login', ''].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '8px 10px', fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u => {
+                const isMe = u.id === currentUser?.id;
+                const initials = (u.name || u.email)?.[0]?.toUpperCase() || 'U';
+                return (
+                  <tr key={u.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <td style={{ padding: '12px 10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{
+                          width: 34, height: 34, borderRadius: 8,
+                          background: u.role === 'admin' ? 'linear-gradient(135deg, #C9A24D, #e8c56d)' : 'var(--color-primary-light)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 800, fontSize: '0.8rem', color: u.role === 'admin' ? '#fff' : 'var(--color-primary)',
+                          flexShrink: 0,
+                        }}>{initials}</div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.86rem' }}>{u.name}{isMe && <span style={{ marginLeft: 6, fontSize: '0.66rem', color: 'var(--color-primary)', fontWeight: 700 }}>(You)</span>}</div>
+                          <div style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>{u.email}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: '12px 10px' }}>
+                      <span style={{
+                        padding: '3px 8px', borderRadius: 6, fontSize: '0.7rem', fontWeight: 700,
+                        background: u.role === 'admin' ? 'rgba(201,162,77,0.12)' : 'var(--color-bg-hover)',
+                        color: u.role === 'admin' ? '#C9A24D' : 'var(--color-text-muted)',
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                      }}>
+                        {u.role === 'admin' && <Shield size={10} />}
+                        {u.role === 'admin' ? 'Admin' : 'Member'}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 10px', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{formatDate(u.createdAt)}</td>
+                    <td style={{ padding: '12px 10px', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{formatDate(u.lastSignIn)}</td>
+                    <td style={{ padding: '12px 10px' }}>
+                      {!isMe && (
+                        <button
+                          className="btn btn-sm"
+                          style={{ background: '#FEE2E2', color: '#DC2626', border: 'none' }}
+                          onClick={() => handleDelete(u.id, u.email)}
+                          disabled={deletingId === u.id}
+                          title="Remove user"
+                        >
+                          {deletingId === u.id ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <UserX size={13} />}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Setup note */}
+      {!isSupabaseEnabled && (
+        <div style={{ marginTop: 12, padding: '10px 14px', background: '#FEF3C7', borderRadius: 10, fontSize: '0.78rem', color: '#92400E' }}>
+          ⚠️ <strong>Note:</strong> Add <code>SUPABASE_SERVICE_ROLE_KEY</code> to your Vercel environment variables to enable team management.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Database Tab Component ───────────────────────────────────────────────────
+
 function DatabaseTab({ publishers, leads, workLog, plannerDays, emailHistory, dataSheets, activity, syncStatus, migrateLocalToSupabase, syncFromCloud, toast }) {
   const [connStatus, setConnStatus] = useState(null); // null | 'checking' | {ok, reason}
   const [migrating, setMigrating] = useState(false);
@@ -407,6 +665,13 @@ export default function Settings() {
           id="settings-tab-database"
         >
           <Cloud size={13} style={{ marginRight: 4 }} /> Database
+        </button>
+        <button
+          className={`country-tab ${activeTab === 'team' ? 'active' : ''}`}
+          onClick={() => setActiveTab('team')}
+          id="settings-tab-team"
+        >
+          <Users size={13} style={{ marginRight: 4 }} /> Team
         </button>
       </div>
 
@@ -956,6 +1221,9 @@ ${aiForm.avoidWords ? `Avoid words: ${aiForm.avoidWords}\n` : ''}${aiForm.compan
         syncFromCloud={syncFromCloud}
         toast={toast}
       />}
+
+      {/* ─── TAB 5: TEAM ─── */}
+      {activeTab === 'team' && <TeamTab toast={toast} />}
 
       {/* About */}
       <div className="card card-pad" style={{ borderTop: '3px solid var(--color-accent)', marginTop: 24 }}>

@@ -238,5 +238,107 @@ function buildPlainTextEmail(body, signature) {
   return `${body}${sig}`;
 }
 
+// ─── Admin User Management (uses service_role key — server-side only) ────────
+const { createClient } = require('@supabase/supabase-js');
+
+function getAdminClient() {
+  const url = process.env.VITE_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) return null;
+  return createClient(url, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false }
+  });
+}
+
+// List all users
+app.get('/api/admin/list-users', async (req, res) => {
+  const admin = getAdminClient();
+  if (!admin) return res.status(503).json({ error: 'Admin client not configured. Add SUPABASE_SERVICE_ROLE_KEY to env vars.' });
+  try {
+    const { data, error } = await admin.auth.admin.listUsers();
+    if (error) return res.status(400).json({ error: error.message });
+    const users = data.users.map(u => ({
+      id: u.id,
+      email: u.email,
+      name: u.user_metadata?.name || u.email.split('@')[0],
+      role: u.user_metadata?.role || 'member',
+      createdAt: u.created_at,
+      lastSignIn: u.last_sign_in_at,
+    }));
+    res.json({ ok: true, users });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create a new user (admin only)
+app.post('/api/admin/create-user', async (req, res) => {
+  const { name, email, password, role } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+
+  const admin = getAdminClient();
+  if (!admin) return res.status(503).json({ error: 'Admin client not configured. Add SUPABASE_SERVICE_ROLE_KEY to env vars.' });
+
+  try {
+    const { data, error } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true, // skip email confirmation
+      user_metadata: { name: name || email.split('@')[0], role: role || 'member' },
+    });
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({
+      ok: true,
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.user_metadata?.name,
+        role: data.user.user_metadata?.role,
+        createdAt: data.user.created_at,
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update user (name, role, password)
+app.post('/api/admin/update-user', async (req, res) => {
+  const { userId, name, role, password } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId is required.' });
+
+  const admin = getAdminClient();
+  if (!admin) return res.status(503).json({ error: 'Admin client not configured.' });
+
+  try {
+    const updates = { user_metadata: { name, role } };
+    if (password && password.length >= 8) updates.password = password;
+    const { data, error } = await admin.auth.admin.updateUserById(userId, updates);
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ ok: true, user: data.user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a user
+app.delete('/api/admin/delete-user', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId is required.' });
+
+  const admin = getAdminClient();
+  if (!admin) return res.status(503).json({ error: 'Admin client not configured.' });
+
+  try {
+    const { error } = await admin.auth.admin.deleteUser(userId);
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Export the express app handler
 module.exports = app;
+
