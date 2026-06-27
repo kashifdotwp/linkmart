@@ -61,7 +61,7 @@ const makeToRow = (allowedCols) => (obj) => toRow(obj, allowedCols);
 
 
 /** Convert a snake_case Postgres row → camelCase JS object */
-const fromRow = (row) => {
+export const fromRow = (row) => {
   const obj = {};
   for (const [k, v] of Object.entries(row)) {
     obj[toCamel(k)] = v;

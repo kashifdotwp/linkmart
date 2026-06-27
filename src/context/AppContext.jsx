@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { getStorage, setStorage, generateId } from '../utils/helpers';
 import { getConfig, updateConfig, DEFAULT_CONFIG } from '../utils/configStore';
 import { SAMPLE_PUBLISHERS, SAMPLE_LEADS, SAMPLE_ACTIVITY } from '../utils/sampleData';
-import { db, isSupabaseEnabled } from '../lib/db';
+import { db, isSupabaseEnabled, fromRow } from '../lib/db';
+import { supabase } from '../lib/supabase';
 
 const AppContext = createContext(null);
 export const useApp = () => useContext(AppContext);
@@ -453,6 +454,95 @@ export const AppProvider = ({ children }) => {
     };
     loadFromCloud();
   }, []);
+
+  // ── Supabase Realtime Subscriptions for Auto-Sync ──────────────────────────
+  useEffect(() => {
+    if (!isSupabaseEnabled || !supabase) return;
+
+    const channel = supabase
+      .channel('realtime-sync')
+      // Listen to Publishers
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'publishers' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newRow = fromRow(payload.new);
+          setPublishers(prev => prev.some(p => p.id === newRow.id) ? prev : [newRow, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          const newRow = fromRow(payload.new);
+          setPublishers(prev => prev.map(p => p.id === newRow.id ? newRow : p));
+        } else if (payload.eventType === 'DELETE') {
+          setPublishers(prev => prev.filter(p => p.id !== payload.old.id));
+        }
+      })
+      // Listen to CRM Leads
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newRow = fromRow(payload.new);
+          setLeads(prev => prev.some(l => l.id === newRow.id) ? prev : [newRow, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          const newRow = fromRow(payload.new);
+          setLeads(prev => prev.map(l => l.id === newRow.id ? newRow : l));
+        } else if (payload.eventType === 'DELETE') {
+          setLeads(prev => prev.filter(l => l.id !== payload.old.id));
+        }
+      })
+      // Listen to Work Log
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'work_log' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newRow = fromRow(payload.new);
+          setWorkLog(prev => prev.some(w => w.id === newRow.id) ? prev : [newRow, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          const newRow = fromRow(payload.new);
+          setWorkLog(prev => prev.map(w => w.id === newRow.id ? newRow : w));
+        } else if (payload.eventType === 'DELETE') {
+          setWorkLog(prev => prev.filter(w => w.id !== payload.old.id));
+        }
+      })
+      // Listen to Planner Days
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'planner_days' }, (payload) => {
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          const newDay = fromRow(payload.new);
+          setPlannerDays(prev => ({ ...prev, [newDay.date]: newDay }));
+        } else if (payload.eventType === 'DELETE') {
+          setPlannerDays(prev => {
+            const copy = { ...prev };
+            delete copy[payload.old.date];
+            return copy;
+          });
+        }
+      })
+      // Listen to Email History
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'email_history' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newRow = fromRow(payload.new);
+          setEmailHistory(prev => prev.some(e => e.id === newRow.id) ? prev : [newRow, ...prev]);
+        }
+      })
+      // Listen to Data Sheets
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'data_sheets' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newRow = fromRow(payload.new);
+          setDataSheets(prev => prev.some(s => s.id === newRow.id) ? prev : [newRow, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          const newRow = fromRow(payload.new);
+          setDataSheets(prev => prev.map(s => s.id === newRow.id ? newRow : s));
+        } else if (payload.eventType === 'DELETE') {
+          setDataSheets(prev => prev.filter(s => s.id !== payload.old.id));
+        }
+      })
+      // Listen to Activity Log
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'activity_log' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const newRow = fromRow(payload.new);
+          setActivity(prev => prev.some(a => a.id === newRow.id) ? prev : [newRow, ...prev].slice(0, 100));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
 
   // ── Migrate all localStorage data → Supabase ──────────────────────────────
   const migrateLocalToSupabase = useCallback(async () => {
