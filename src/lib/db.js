@@ -42,6 +42,11 @@ const ACTIVITY_COLS = new Set([
   'id','user_id','type','message','timestamp',
 ]);
 
+const NUMERIC_COLS = new Set([
+  'dr', 'da', 'organic_traffic', 'referring_domains', 'backlinks', 'spam_score',
+  'seller_price', 'client_price', 'profit', 'avg_serp_position', 'invoice_amount', 'row_count'
+]);
+
 /** Convert a camelCase JS object → snake_case Postgres row, filtered to allowed cols */
 const toRow = (obj, allowedCols = null) => {
   const row = { user_id: USER_ID };
@@ -49,7 +54,17 @@ const toRow = (obj, allowedCols = null) => {
     if (v !== undefined) {
       const snakeKey = toSnake(k);
       if (!allowedCols || allowedCols.has(snakeKey)) {
-        row[snakeKey] = v;
+        if (NUMERIC_COLS.has(snakeKey)) {
+          // Convert empty string/null/undefined to null, ensure valid numbers otherwise
+          if (v === '' || v === null || v === undefined) {
+            row[snakeKey] = null;
+          } else {
+            const numVal = Number(v);
+            row[snakeKey] = isNaN(numVal) ? null : numVal;
+          }
+        } else {
+          row[snakeKey] = v;
+        }
       }
     }
   }
