@@ -4,11 +4,13 @@ import { getConfig, updateConfig, DEFAULT_CONFIG } from '../utils/configStore';
 import { SAMPLE_PUBLISHERS, SAMPLE_LEADS, SAMPLE_ACTIVITY } from '../utils/sampleData';
 import { db, isSupabaseEnabled, fromRow } from '../lib/db';
 import { supabase } from '../lib/supabase';
+import { useAuth } from './AuthContext';
 
 const AppContext = createContext(null);
 export const useApp = () => useContext(AppContext);
 
 export const AppProvider = ({ children }) => {
+  const { currentUser, authLoading } = useAuth();
   // ── Sync Status ──
   const [syncStatus, setSyncStatus] = useState('idle'); // idle | loading | syncing | error
 
@@ -428,7 +430,7 @@ export const AppProvider = ({ children }) => {
 
   // ── Supabase: Load from cloud on mount ─────────────────────────────────────
   useEffect(() => {
-    if (!isSupabaseEnabled) return;
+    if (!isSupabaseEnabled || authLoading || !currentUser) return;
     const loadFromCloud = async () => {
       try {
         setSyncStatus('loading');
@@ -456,7 +458,7 @@ export const AppProvider = ({ children }) => {
       }
     };
     loadFromCloud();
-  }, []);
+  }, [currentUser, authLoading]);
 
   // ── Supabase Realtime Subscriptions for Auto-Sync ──────────────────────────
   useEffect(() => {
@@ -544,7 +546,7 @@ export const AppProvider = ({ children }) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [currentUser, authLoading]);
 
 
   // ── Migrate all localStorage data → Supabase ──────────────────────────────
