@@ -3,7 +3,8 @@ import {
   Sun, Moon, Trash2, Download, Settings as SettingsIcon,
   Palette, Database, HardDrive, Mail, Sparkles, Plus, Edit,
   Check, Loader2, Play, CheckCircle, AlertCircle, Trash, Key, Eye, EyeOff, Save,
-  Cloud, CloudOff, RefreshCw, Upload, Wifi, WifiOff, Users, UserPlus, Shield, UserX
+  Cloud, CloudOff, RefreshCw, Upload, Wifi, WifiOff, Users, UserPlus, Shield, UserX,
+  History
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -267,6 +268,213 @@ function TeamTab({ toast }) {
   );
 }
 
+// ─── Revisions Tab Component ───────────────────────────────────────────────────
+function RevisionsTab({
+  revisions,
+  createRevisionPoint,
+  deleteRevision,
+  restoreToRevision,
+  downloadLocalBackup,
+  restoreFromBackupFile,
+  toast
+}) {
+  const [note, setNote] = useState('');
+  const [restoringId, setRestoringId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(null);
+  
+  // File upload state
+  const fileInputRef = React.useRef(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleCreate = (e) => {
+    e.preventDefault();
+    if (!note.trim()) return;
+    setCreating(true);
+    setTimeout(() => {
+      createRevisionPoint(note.trim() + " (Manual)");
+      setNote('');
+      setCreating(false);
+      toast('success', 'Restore Point Created', 'Manual restore point successfully created.');
+    }, 400);
+  };
+
+  const handleConfirmRestore = (revision) => {
+    setConfirmRestore(revision);
+  };
+
+  const executeRestore = async () => {
+    if (!confirmRestore) return;
+    const revId = confirmRestore.id;
+    setRestoringId(revId);
+    const res = await restoreToRevision(revId);
+    setRestoringId(null);
+    setConfirmRestore(null);
+    if (res.ok) {
+      toast('success', 'Database Restored', `Database rolled back to: "${confirmRestore.description}"`);
+    } else {
+      toast('error', 'Restore Failed', res.error || 'Failed to restore to this snapshot.');
+    }
+  };
+
+  const handleDelete = (id) => {
+    setDeletingId(id);
+    setTimeout(() => {
+      deleteRevision(id);
+      setDeletingId(null);
+      toast('success', 'Snapshot Removed', 'Restore point deleted.');
+    }, 300);
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target.result;
+      const res = await restoreFromBackupFile(text);
+      setUploading(false);
+      if (res.ok) {
+        toast('success', 'Backup Restored', 'Database successfully restored from JSON file.');
+      } else {
+        toast('error', 'Restore Failed', res.error || 'Failed to restore from backup file.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // clear input
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Create Restore Point Card */}
+      <div className="card card-pad">
+        <h3 style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <History size={16} style={{ color: 'var(--color-primary)' }} />
+          Create Custom Restore Point
+        </h3>
+        <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginBottom: 12 }}>
+          Take a manual snapshot of the database before making major changes. Revert back to this snapshot at any time.
+        </p>
+        <form onSubmit={handleCreate} style={{ display: 'flex', gap: 8 }}>
+          <input
+            className="form-input"
+            placeholder="e.g. Before merging Fiverr client list..."
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            required
+            style={{ flex: 1, fontSize: '0.82rem' }}
+          />
+          <button type="submit" className="btn btn-primary" disabled={creating || !note.trim()}>
+            {creating ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : 'Create'}
+          </button>
+        </form>
+      </div>
+
+      {/* Revisions Table */}
+      <div className="card card-pad">
+        <h3 style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: 12 }}>
+          Database Restore Points & Revision History
+        </h3>
+        {revisions.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '30px 10px', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+            No restore points saved yet. Snapshots will be created automatically before imports and deletions.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--color-border)', textAlign: 'left' }}>
+                  <th style={{ padding: 8, color: 'var(--color-text-muted)', fontWeight: 800 }}>Revision Details</th>
+                  <th style={{ padding: 8, color: 'var(--color-text-muted)', fontWeight: 800 }}>Records Count</th>
+                  <th style={{ padding: 8, color: 'var(--color-text-muted)', fontWeight: 800, textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {revisions.map((rev) => (
+                  <tr key={rev.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <td style={{ padding: 10 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--color-text)' }}>{rev.description}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginTop: 2 }}>
+                        {new Date(rev.timestamp).toLocaleString()}
+                      </div>
+                    </td>
+                    <td style={{ padding: 10, verticalAlign: 'middle' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+                        🏢 {rev.stats?.publishers || 0} pubs · 🎯 {rev.stats?.leads || 0} leads
+                      </span>
+                    </td>
+                    <td style={{ padding: 10, textAlign: 'right', verticalAlign: 'middle' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <button
+                          className="btn btn-outline btn-xs"
+                          onClick={() => handleConfirmRestore(rev)}
+                          disabled={restoringId !== null}
+                        >
+                          {restoringId === rev.id ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : 'Restore'}
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          style={{ color: 'var(--color-danger-text)' }}
+                          onClick={() => handleDelete(rev.id)}
+                          disabled={deletingId === rev.id}
+                        >
+                          {deletingId === rev.id ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : 'Delete'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* File Backups Card */}
+      <div className="card card-pad">
+        <h3 style={{ fontSize: '0.92rem', fontWeight: 700, marginBottom: 12 }}>
+          Complete Database File Backups
+        </h3>
+        <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', marginBottom: 16 }}>
+          Download your entire database as a local JSON file or upload a previously exported backup file to restore it.
+        </p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn btn-outline" onClick={downloadLocalBackup} style={{ flex: 1 }}>
+            <Download size={14} style={{ marginRight: 6 }} /> Export Backup File (.json)
+          </button>
+          
+          <button className="btn btn-outline" onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ flex: 1 }}>
+            {uploading ? <Loader2 size={14} style={{ marginRight: 6, animation: 'spin 1s linear infinite' }} /> : <Upload size={14} style={{ marginRight: 6 }} />}
+            Import Backup File (.json)
+          </button>
+          
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            accept=".json"
+            style={{ display: 'none' }}
+          />
+        </div>
+      </div>
+
+      {/* Confirm Restore Dialog */}
+      {confirmRestore && (
+        <ConfirmModal
+          title="Restore Database to Snapshot?"
+          message={`This will overwrite the current publishers list, CRM leads, and work logs with the backup state from "${confirmRestore.description}" (${new Date(confirmRestore.timestamp).toLocaleString()}). This action cannot be easily undone.`}
+          confirmLabel="Restore Snapshot"
+          onConfirm={executeRestore}
+          onCancel={() => setConfirmRestore(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Database Tab Component ───────────────────────────────────────────────────
 
 function DatabaseTab({ publishers, leads, workLog, plannerDays, emailHistory, dataSheets, activity, syncStatus, migrateLocalToSupabase, syncFromCloud, toast }) {
@@ -435,9 +643,10 @@ export default function Settings() {
     emailAccounts, addEmailAccount, updateEmailAccount, deleteEmailAccount, setDefaultAccount,
     aiSettings, saveAiSettings, toast,
     syncStatus, migrateLocalToSupabase, syncFromCloud,
+    revisions, createRevisionPoint, deleteRevision, restoreToRevision, downloadLocalBackup, restoreFromBackupFile,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState('general'); // 'general' | 'accounts' | 'ai'
+  const [activeTab, setActiveTab] = useState('general'); // 'general' | 'accounts' | 'ai' | 'revisions'
   const [confirmClear, setConfirmClear] = useState(false);
 
   // ─── SMTP Account Form State ───
@@ -664,7 +873,14 @@ export default function Settings() {
           onClick={() => setActiveTab('database')}
           id="settings-tab-database"
         >
-          <Cloud size={13} style={{ marginRight: 4 }} /> Database
+          <Database size={13} style={{ marginRight: 4 }} /> Database
+        </button>
+        <button
+          className={`country-tab ${activeTab === 'revisions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('revisions')}
+          id="settings-tab-revisions"
+        >
+          <History size={13} style={{ marginRight: 4 }} /> Revisions & Backups
         </button>
         <button
           className={`country-tab ${activeTab === 'team' ? 'active' : ''}`}
@@ -1222,7 +1438,18 @@ ${aiForm.avoidWords ? `Avoid words: ${aiForm.avoidWords}\n` : ''}${aiForm.compan
         toast={toast}
       />}
 
-      {/* ─── TAB 5: TEAM ─── */}
+      {/* ─── TAB 5: REVISIONS ─── */}
+      {activeTab === 'revisions' && <RevisionsTab
+        revisions={revisions}
+        createRevisionPoint={createRevisionPoint}
+        deleteRevision={deleteRevision}
+        restoreToRevision={restoreToRevision}
+        downloadLocalBackup={downloadLocalBackup}
+        restoreFromBackupFile={restoreFromBackupFile}
+        toast={toast}
+      />}
+
+      {/* ─── TAB 6: TEAM ─── */}
       {activeTab === 'team' && <TeamTab toast={toast} />}
 
       {/* About */}

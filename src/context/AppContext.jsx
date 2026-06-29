@@ -14,19 +14,162 @@ export const AppProvider = ({ children }) => {
   // ── Sync Status ──
   const [syncStatus, setSyncStatus] = useState('idle'); // idle | loading | syncing | error
 
-  // ── Toasts ──
-  const [toasts, setToasts] = useState([]);
-  const toast = useCallback((type, title, msg) => {
-    const id = generateId();
-    setToasts(prev => [...prev, { id, type, title, msg }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
-  }, []);
-  const dismissToast = useCallback((id) => setToasts(prev => prev.filter(t => t.id !== id)), []);
+  // ── Database States ──
+  const [publishers, setPublishers] = useState(() => {
+    const stored = getStorage('lm_publishers', null);
+    if (stored && stored.length > 0) return stored;
+    const seeded = SAMPLE_PUBLISHERS;
+    setStorage('lm_publishers', seeded);
+    return seeded;
+  });
+  const savePublishers = (data) => { setPublishers(data); setStorage('lm_publishers', data); };
 
-  const syncWarn = useCallback((label, err) => {
-    console.warn(`[Supabase sync] ${label}:`, err?.message || err);
-    toast('error', 'Database Sync Failed', `${label}: ${err?.message || err}`);
-  }, [toast]);
+  const [leads, setLeads] = useState(() => {
+    const stored = getStorage('lm_leads', null);
+    if (stored && stored.length > 0) return stored;
+    const seeded = SAMPLE_LEADS;
+    setStorage('lm_leads', seeded);
+    return seeded;
+  });
+  const saveLeads = (data) => { setLeads(data); setStorage('lm_leads', data); };
+
+  const [workLog, setWorkLog] = useState(() => getStorage('lm_worklog', []));
+  const saveWorkLog = (data) => { setWorkLog(data); setStorage('lm_worklog', data); };
+
+  // ── Revisions & Restore Points ──
+  const [revisions, setRevisions] = useState(() => getStorage('lm_revisions', []));
+
+  const createRevisionPoint = useCallback((description, customState = null) => {
+    const activePublishers = customState?.publishers || publishers;
+    const activeLeads = customState?.leads || leads;
+    const activeWorkLog = customState?.workLog || workLog;
+
+    const newRevision = {
+      id: generateId(),
+      timestamp: new Date().toISOString(),
+      description,
+      stats: {
+        publishers: activePublishers.length,
+        leads: activeLeads.length,
+        workLog: activeWorkLog.length,
+      },
+      data: {
+        publishers: activePublishers,
+        leads: activeLeads,
+        workLog: activeWorkLog,
+      }
+    };
+    setRevisions(prev => {
+      const updated = [newRevision, ...prev].slice(0, 10);
+      setStorage('lm_revisions', updated);
+      return updated;
+    });
+  }, [publishers, leads, workLog]);
+
+  const deleteRevision = useCallback((id) => {
+    setRevisions(prev => {
+      const updated = prev.filter(r => r.id !== id);
+      setStorage('lm_revisions', updated);
+      return updated;
+    });
+  }, []);
+
+  const restoreToRevision = useCallback(async (id) => {
+    const revision = revisions.find(r => r.id === id);
+    if (!revision) return { ok: false, error: 'Revision not found' };
+
+    const { data } = revision;
+    
+    // Save locally
+    savePublishers(data.publishers || []);
+    saveLeads(data.leads || []);
+    saveWorkLog(data.workLog || []);
+
+    // Sync to Supabase (clear and restore)
+    if (isSupabaseEnabled) {
+      try {
+        setSyncStatus('syncing');
+        // Delete all from supabase
+        if (publishers.length > 0) await db.publishers.bulkRemove(publishers.map(p => p.id));
+        if (leads.length > 0) await db.leads.bulkRemove(leads.map(l => l.id));
+        if (workLog.length > 0) await db.workLog.bulkRemove(workLog.map(w => w.id));
+
+        // Insert new ones
+        if (data.publishers && data.publishers.length > 0) {
+          await db.publishers.upsertMany(data.publishers);
+        }
+        if (data.leads && data.leads.length > 0) {
+          await db.leads.upsertMany(data.leads);
+        }
+        if (data.workLog && data.workLog.length > 0) {
+          await db.workLog.upsertMany(data.workLog);
+        }
+        setSyncStatus('idle');
+      } catch (err) {
+        setSyncStatus('error');
+        console.error('Failed to sync revision restore to Supabase', err);
+      }
+    }
+
+    logActivity('database_restored', `Restored database to: "${revision.description}"`);
+    return { ok: true };
+  }, [revisions, publishers, leads, workLog, savePublishers, saveLeads, saveWorkLog]);
+
+  const downloadLocalBackup = useCallback(() => {
+    const backup = {
+      version: '2.0',
+      timestamp: new Date().toISOString(),
+      data: {
+        publishers,
+        leads,
+        workLog,
+      }
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `linkmart_backup_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [publishers, leads, workLog]);
+
+  const restoreFromBackupFile = useCallback(async (jsonContent) => {
+    try {
+      const backup = JSON.parse(jsonContent);
+      if (!backup.data || (!backup.data.publishers && !backup.data.leads)) {
+        return { ok: false, error: 'Invalid backup file format' };
+      }
+
+      const { publishers: p, leads: l, workLog: w } = backup.data;
+      
+      savePublishers(p || []);
+      saveLeads(l || []);
+      saveWorkLog(w || []);
+
+      if (isSupabaseEnabled) {
+        setSyncStatus('syncing');
+        // Delete existing from supabase
+        if (publishers.length > 0) await db.publishers.bulkRemove(publishers.map(pub => pub.id));
+        if (leads.length > 0) await db.leads.bulkRemove(leads.map(lead => lead.id));
+        if (workLog.length > 0) await db.workLog.bulkRemove(workLog.map(work => work.id));
+
+        // Insert backup
+        if (p && p.length > 0) await db.publishers.upsertMany(p);
+        if (l && l.length > 0) await db.leads.upsertMany(l);
+        if (w && w.length > 0) await db.workLog.upsertMany(w);
+        setSyncStatus('idle');
+      }
+
+      logActivity('database_restored', 'Restored database from uploaded backup file');
+      return { ok: true };
+    } catch (err) {
+      console.error(err);
+      return { ok: false, error: 'Failed to parse JSON content' };
+    }
+  }, [publishers, leads, workLog, savePublishers, saveLeads, saveWorkLog]);
 
   // ── Theme ──
   const [theme, setTheme] = useState(() => getStorage('lm_theme', 'light'));
@@ -40,15 +183,7 @@ export const AppProvider = ({ children }) => {
   const refreshConfig = () => setConfig(getConfig());
   const updateConfigKey = (key, values) => { updateConfig(key, values); refreshConfig(); };
 
-  // ── Publishers ──
-  const [publishers, setPublishers] = useState(() => {
-    const stored = getStorage('lm_publishers', null);
-    if (stored && stored.length > 0) return stored;
-    const seeded = SAMPLE_PUBLISHERS;
-    setStorage('lm_publishers', seeded);
-    return seeded;
-  });
-  const savePublishers = (data) => { setPublishers(data); setStorage('lm_publishers', data); };
+
 
   const addPublisher = useCallback((pub) => {
     const dup = publishers.find(p => p.domain?.toLowerCase() === pub.domain?.toLowerCase());
@@ -97,24 +232,27 @@ export const AppProvider = ({ children }) => {
 
   const deletePublisher = useCallback((id) => {
     const pub = publishers.find(p => p.id === id);
+    createRevisionPoint(`Before deleting website ${pub?.domain || id}`);
     savePublishers(publishers.filter(p => p.id !== id));
     db.publishers.remove(id).catch(e => syncWarn('deletePublisher', e));
     if (pub) logActivity('publisher_deleted', `Deleted website ${pub.domain}`);
-  }, [publishers]);
+  }, [publishers, createRevisionPoint]);
 
   const bulkDeletePublishers = useCallback((ids) => {
+    createRevisionPoint(`Before bulk deleting ${ids.length} websites`);
     savePublishers(publishers.filter(p => !ids.includes(p.id)));
     db.publishers.bulkRemove(ids).catch(e => syncWarn('bulkDeletePublishers', e));
     logActivity('publisher_deleted', `Bulk deleted ${ids.length} websites`);
-  }, [publishers]);
+  }, [publishers, createRevisionPoint]);
 
   const bulkUpdatePublisherStatus = useCallback((ids, status) => {
+    createRevisionPoint(`Before status update of ${ids.length} websites to "${status}"`);
     const updated = publishers.map(p => ids.includes(p.id) ? { ...p, status, lastUpdated: new Date().toISOString() } : p);
     savePublishers(updated);
     const changed = updated.filter(p => ids.includes(p.id));
     db.publishers.upsertMany(changed).catch(e => syncWarn('bulkUpdatePublisherStatus', e));
     logActivity('publisher_updated', `Updated status of ${ids.length} websites to ${status}`);
-  }, [publishers]);
+  }, [publishers, createRevisionPoint]);
 
   const togglePublisherStar = useCallback((id) => {
     const updated = publishers.map(p => p.id === id ? { ...p, starred: !p.starred } : p);
@@ -124,6 +262,7 @@ export const AppProvider = ({ children }) => {
   }, [publishers]);
 
   const importPublishers = useCallback((newPubs) => {
+    createRevisionPoint('Before importing websites list');
     const all = [...publishers];
     let added = 0, skipped = 0;
     const toSync = [];
@@ -144,17 +283,9 @@ export const AppProvider = ({ children }) => {
     if (toSync.length > 0) db.publishers.upsertMany(toSync).catch(e => syncWarn('importPublishers', e));
     logActivity('publisher_added', `Imported ${added} websites (${skipped} duplicates skipped)`);
     return { added, skipped };
-  }, [publishers]);
+  }, [publishers, createRevisionPoint]);
 
-  // ── Leads ──
-  const [leads, setLeads] = useState(() => {
-    const stored = getStorage('lm_leads', null);
-    if (stored && stored.length > 0) return stored;
-    const seeded = SAMPLE_LEADS;
-    setStorage('lm_leads', seeded);
-    return seeded;
-  });
-  const saveLeads = (data) => { setLeads(data); setStorage('lm_leads', data); };
+
 
   const addLead = useCallback((lead) => {
     const dup = leads.find(l => l.website?.toLowerCase() === lead.website?.toLowerCase());
@@ -190,24 +321,27 @@ export const AppProvider = ({ children }) => {
 
   const deleteLead = useCallback((id) => {
     const lead = leads.find(l => l.id === id);
+    createRevisionPoint(`Before deleting lead ${lead?.website || id}`);
     saveLeads(leads.filter(l => l.id !== id));
     db.leads.remove(id).catch(e => syncWarn('deleteLead', e));
     if (lead) logActivity('lead_deleted', `Deleted lead ${lead.website}`);
-  }, [leads]);
+  }, [leads, createRevisionPoint]);
 
   const bulkDeleteLeads = useCallback((ids) => {
+    createRevisionPoint(`Before bulk deleting ${ids.length} leads`);
     saveLeads(leads.filter(l => !ids.includes(l.id)));
     db.leads.bulkRemove(ids).catch(e => syncWarn('bulkDeleteLeads', e));
     logActivity('lead_deleted', `Bulk deleted ${ids.length} leads`);
-  }, [leads]);
+  }, [leads, createRevisionPoint]);
 
   const bulkUpdateLeadStatus = useCallback((ids, status) => {
+    createRevisionPoint(`Before status update of ${ids.length} leads to "${status}"`);
     const updated = leads.map(l => ids.includes(l.id) ? { ...l, status } : l);
     saveLeads(updated);
     const changed = updated.filter(l => ids.includes(l.id));
     db.leads.upsertMany(changed).catch(e => syncWarn('bulkUpdateLeadStatus', e));
     logActivity('lead_contacted', `Updated status of ${ids.length} leads to ${status}`);
-  }, [leads]);
+  }, [leads, createRevisionPoint]);
 
   const toggleLeadStar = useCallback((id) => {
     const updated = leads.map(l => l.id === id ? { ...l, starred: !l.starred } : l);
@@ -217,6 +351,7 @@ export const AppProvider = ({ children }) => {
   }, [leads]);
 
   const importLeads = useCallback((newLeads) => {
+    createRevisionPoint('Before importing leads list');
     const all = [...leads];
     let added = 0, skipped = 0;
     const toSync = [];
@@ -231,11 +366,10 @@ export const AppProvider = ({ children }) => {
     if (toSync.length > 0) db.leads.upsertMany(toSync).catch(e => syncWarn('importLeads', e));
     logActivity('lead_added', `Imported ${added} leads (${skipped} duplicates skipped)`);
     return { added, skipped };
-  }, [leads]);
+  }, [leads, createRevisionPoint]);
 
-  // ── Work Log ──
-  const [workLog, setWorkLog] = useState(() => getStorage('lm_worklog', []));
-  const saveWorkLog = (data) => { setWorkLog(data); setStorage('lm_worklog', data); };
+
+
 
   const addWorkLog = useCallback((entry) => {
     const newEntry = { ...entry, id: generateId(), createdAt: new Date().toISOString(), lastUpdated: new Date().toISOString() };
@@ -708,6 +842,8 @@ export const AppProvider = ({ children }) => {
       emailHistory, addEmailHistory, getEmailHistoryForRecord,
       // Data Sheets
       dataSheets, addDataSheet, deleteDataSheet, mergeDataSheetToDatabase, mergeSelectedRowsToDatabase, updateDataSheetRows,
+      // Revisions
+      revisions, createRevisionPoint, deleteRevision, restoreToRevision, downloadLocalBackup, restoreFromBackupFile,
       // Activity
       activity, logActivity,
       // Supabase Sync
