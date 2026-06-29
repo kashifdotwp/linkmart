@@ -14,6 +14,20 @@ export const AppProvider = ({ children }) => {
   // ── Sync Status ──
   const [syncStatus, setSyncStatus] = useState('idle'); // idle | loading | syncing | error
 
+  // ── Toasts ──
+  const [toasts, setToasts] = useState([]);
+  const toast = useCallback((type, title, msg) => {
+    const id = generateId();
+    setToasts(prev => [...prev, { id, type, title, msg }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+  }, []);
+  const dismissToast = useCallback((id) => setToasts(prev => prev.filter(t => t.id !== id)), []);
+
+  const syncWarn = useCallback((label, err) => {
+    console.warn(`[Supabase sync] ${label}:`, err?.message || err);
+    toast('error', 'Database Sync Failed', `${label}: ${err?.message || err}`);
+  }, [toast]);
+
   // ── Database States ──
   const [publishers, setPublishers] = useState(() => {
     const stored = getStorage('lm_publishers', null);
