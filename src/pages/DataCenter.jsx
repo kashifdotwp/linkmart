@@ -138,7 +138,7 @@ export default function DataCenter() {
       source: sheetSource,
       targetType: targetType,
       rowCount: rawRows.length,
-      columns: rawHeaders,
+      headers: rawHeaders,
       mappings: mappings,
       rows: rawRows,
     });
@@ -504,9 +504,17 @@ export default function DataCenter() {
 
 // ─── Full-Page Sheet Viewer Component ───────────────────────────────────────
 function SheetViewer({ sheet, onClose, mergeSelectedRowsToDatabase, updateDataSheetRows, toast }) {
-  // Safe fallback for columns — fixes white screen crash
+  // Safe fallback for columns — handles both 'columns' and 'headers' keys,
+  // plus fallback to deriving from first row data
   const cols = useMemo(() => {
-    return sheet.columns || sheet.headers || Object.keys(sheet.rows?.[0] || {});
+    // Try columns first (old local storage), then headers (Supabase), then derive from data
+    const candidates = sheet.columns || sheet.headers;
+    if (Array.isArray(candidates) && candidates.length > 0) return candidates;
+    // Derive from first row if headers/columns missing or empty
+    if (sheet.rows && sheet.rows.length > 0) {
+      return Object.keys(sheet.rows[0]).filter(k => k !== '_idx' && k !== 'id' && k !== 'user_id');
+    }
+    return [];
   }, [sheet]);
 
   const rows = sheet.rows || [];
