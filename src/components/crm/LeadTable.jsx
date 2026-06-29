@@ -12,13 +12,12 @@ import ExportModal from '../shared/ExportModal';
 import ImportModal from '../shared/ImportModal';
 import LeadForm from './LeadForm';
 import LeadPanel from './LeadPanel';
+import Pagination, { loadPageSize } from '../shared/Pagination';
 import { TagList } from '../shared/TagBadge';
 import {
   formatNumber, formatDate, getStorage, setStorage,
   isFollowUpDue, isFollowUpOverdue,
 } from '../../utils/helpers';
-
-const PAGE_SIZE = 25;
 
 const ALL_COLUMNS = [
   { key: 'website', label: 'Website' },
@@ -51,7 +50,10 @@ export default function LeadTable() {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState({ key: 'followUpDate', dir: 'asc' });
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => loadPageSize('lm_lead_page_size', 25));
   const [selected, setSelected] = useState(new Set());
+  const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+  const [showExportSelected, setShowExportSelected] = useState(false);
   const [visibleCols, setVisibleCols] = useState(() => getStorage('lm_lead_cols', DEFAULT_VISIBLE));
   const [showColPanel, setShowColPanel] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -82,15 +84,35 @@ export default function LeadTable() {
     return data;
   }, [leads, country, niche, search, sort]);
 
-  const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const effectivePageSize = pageSize === 'all' ? filtered.length || 1 : pageSize;
+  const pageData = pageSize === 'all' ? filtered : filtered.slice((page - 1) * effectivePageSize, page * effectivePageSize);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / effectivePageSize));
   const columns = ALL_COLUMNS.filter(c => visibleCols.includes(c.key));
 
   const toggleSort = (key) => { setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }); setPage(1); };
-  const toggleSelect = (id) => setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
-  const toggleAll = () => { if (selected.size === pageData.length) setSelected(new Set()); else setSelected(new Set(pageData.map(l => l.id))); };
+  const toggleSelect = (id) => { setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); setSelectAllFiltered(false); };
+  const toggleAll = () => {
+    if (selectAllFiltered || selected.size === pageData.length) {
+      setSelected(new Set());
+      setSelectAllFiltered(false);
+    } else {
+      setSelected(new Set(pageData.map(l => l.id)));
+      setSelectAllFiltered(false);
+    }
+  };
+  const handleSelectAllFiltered = () => {
+    setSelected(new Set(filtered.map(l => l.id)));
+    setSelectAllFiltered(true);
+  };
+  const handleClearSelection = () => { setSelected(new Set()); setSelectAllFiltered(false); };
 
-  const handleBulkDelete = () => { bulkDeleteLeads([...selected]); setSelected(new Set()); toast('success', 'Deleted', `${selected.size} leads deleted.`); };
+  // Data for Export Selected
+  const selectedData = useMemo(() => {
+    if (selected.size === 0) return [];
+    return filtered.filter(l => selected.has(l.id));
+  }, [filtered, selected]);
+
+  const handleBulkDelete = () => { bulkDeleteLeads([...selected]); setSelected(new Set()); setSelectAllFiltered(false); toast('success', 'Deleted', `${selected.size} leads deleted.`); };
   const handleBulkStatus = () => { if (!bulkStatusVal) return; bulkUpdateLeadStatus([...selected], bulkStatusVal); setSelected(new Set()); setShowBulkStatus(false); toast('success', 'Status Updated', `${selected.size} leads updated to "${bulkStatusVal}".`); };
   const handleImport = (records) => { const { added, skipped } = importLeads(records); toast('success', 'Import Complete', `${added} leads added, ${skipped} duplicates skipped.`); };
   const handleDeleteOne = (lead) => { setConfirmDelete(lead); setPanelLead(null); };
@@ -179,24 +201,63 @@ export default function LeadTable() {
       </div>
 
       {selected.size > 0 && (
-        <div className="bulk-actions-bar" style={{ marginBottom: 12 }}>
-          <span className="bulk-selected-count">{selected.size} selected</span>
-          <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none' }}
-            onClick={() => setShowBulkStatus(o => !o)} id="lead-bulk-status-btn">Update Status</button>
-          {showBulkStatus && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <select className="form-select" style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}
-                value={bulkStatusVal} onChange={e => setBulkStatusVal(e.target.value)}>
-                <option value="">Select status...</option>
-                {LEAD_STATUSES.map(s => <option key={s}>{s}</option>)}
-              </select>
-              <button className="btn btn-sm" style={{ background: 'var(--color-accent)', color: '#fff', border: 'none' }} onClick={handleBulkStatus}>Apply</button>
+        <>
+          {/* Select All Filtered Banner */}
+          {selected.size === pageData.length && !selectAllFiltered && filtered.length > pageData.length && (
+            <div style={{
+              padding: '8px 16px', background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.3)',
+              borderRadius: 8, marginBottom: 8, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 8,
+              color: 'var(--color-text)'
+            }}>
+              <span>All <strong>{pageData.length}</strong> leads on this page are selected.</span>
+              <button
+                className="btn btn-sm" style={{ background: '#7C3AED', color: '#fff', border: 'none', padding: '3px 10px', fontSize: '0.78rem' }}
+                onClick={handleSelectAllFiltered}
+              >
+                Select all {filtered.length} leads
+              </button>
             </div>
           )}
-          <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.8)', color: '#fff', border: 'none', marginLeft: 'auto' }}
-            onClick={() => setConfirmDelete('bulk')} id="lead-bulk-delete-btn"><Trash2 size={13} /> Delete</button>
-          <button className="btn btn-ghost btn-sm" style={{ color: 'rgba(255,255,255,0.7)' }} onClick={() => setSelected(new Set())}>Clear</button>
-        </div>
+          {selectAllFiltered && (
+            <div style={{
+              padding: '8px 16px', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)',
+              borderRadius: 8, marginBottom: 8, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 8,
+              color: 'var(--color-text)'
+            }}>
+              <span>All <strong>{filtered.length}</strong> leads are selected.</span>
+              <button
+                className="btn btn-sm btn-ghost" style={{ fontSize: '0.78rem', padding: '3px 10px' }}
+                onClick={handleClearSelection}
+              >
+                Clear selection
+              </button>
+            </div>
+          )}
+
+          {/* Bulk Actions Bar */}
+          <div className="bulk-actions-bar" style={{ marginBottom: 12 }}>
+            <span className="bulk-selected-count">{selected.size} selected</span>
+            <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none' }}
+              onClick={() => setShowBulkStatus(o => !o)} id="lead-bulk-status-btn">Update Status</button>
+            {showBulkStatus && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <select className="form-select" style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}
+                  value={bulkStatusVal} onChange={e => setBulkStatusVal(e.target.value)}>
+                  <option value="">Select status...</option>
+                  {LEAD_STATUSES.map(s => <option key={s}>{s}</option>)}
+                </select>
+                <button className="btn btn-sm" style={{ background: 'var(--color-accent)', color: '#fff', border: 'none' }} onClick={handleBulkStatus}>Apply</button>
+              </div>
+            )}
+            <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none' }}
+              onClick={() => setShowExportSelected(true)} id="lead-bulk-export-btn">
+              <Download size={13} /> Export Selected
+            </button>
+            <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.8)', color: '#fff', border: 'none', marginLeft: 'auto' }}
+              onClick={() => setConfirmDelete('bulk')} id="lead-bulk-delete-btn"><Trash2 size={13} /> Delete</button>
+            <button className="btn btn-ghost btn-sm" style={{ color: 'rgba(255,255,255,0.7)' }} onClick={handleClearSelection}>Clear</button>
+          </div>
+        </>
       )}
 
       <div className="table-container">
@@ -206,7 +267,7 @@ export default function LeadTable() {
               <tr>
                 <th className="cell-check">
                   <input type="checkbox" className="checkbox" id="lead-select-all"
-                    checked={pageData.length > 0 && selected.size === pageData.length} onChange={toggleAll} />
+                    checked={pageData.length > 0 && (selectAllFiltered || selected.size === pageData.length)} onChange={toggleAll} />
                 </th>
                 <th style={{ width: 32 }} title="Starred">⭐</th>
                 {columns.map(col => (
@@ -252,20 +313,15 @@ export default function LeadTable() {
             </tbody>
           </table>
         </div>
-        <div className="table-footer">
-          <span className="table-count">Showing {Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} leads</span>
-          <div className="pagination">
-            <button className="page-btn" disabled={page === 1} onClick={() => setPage(1)}>«</button>
-            <button className="page-btn" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹</button>
-            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              const p = page <= 3 ? i + 1 : page - 2 + i;
-              if (p > totalPages) return null;
-              return <button key={p} className={`page-btn ${p === page ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>;
-            })}
-            <button className="page-btn" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>›</button>
-            <button className="page-btn" disabled={page === totalPages} onClick={() => setPage(totalPages)}>»</button>
-          </div>
-        </div>
+        <Pagination
+          total={filtered.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          entityName="leads"
+          pageSizeKey="lm_lead_page_size"
+        />
       </div>
 
       {showAddForm && <LeadForm onClose={() => setShowAddForm(false)} />}
@@ -274,6 +330,7 @@ export default function LeadTable() {
         onEdit={() => { setEditingLead(panelLead); setPanelLead(null); }}
         onDelete={() => handleDeleteOne(panelLead)} />}
       {showExport && <ExportModal columns={ALL_COLUMNS} data={filtered} filename="leads.csv" onClose={() => setShowExport(false)} />}
+      {showExportSelected && <ExportModal columns={ALL_COLUMNS} data={selectedData} filename="leads_selected.csv" onClose={() => setShowExportSelected(false)} />}
       {showImport && <ImportModal systemFields={IMPORT_FIELDS} onImport={handleImport} onClose={() => setShowImport(false)} entityName="leads" />}
       {confirmDelete === 'bulk' && <ConfirmModal title={`Delete ${selected.size} Leads?`} message="This action cannot be undone." confirmLabel="Delete All" onConfirm={() => { handleBulkDelete(); setConfirmDelete(null); }} onCancel={() => setConfirmDelete(null)} />}
       {confirmDelete && confirmDelete !== 'bulk' && <ConfirmModal title={`Delete "${confirmDelete.website}"?`} message="This lead will be permanently removed." onConfirm={confirmDeleteOne} onCancel={() => setConfirmDelete(null)} />}

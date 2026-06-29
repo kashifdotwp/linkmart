@@ -1,10 +1,14 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import Papa from 'papaparse';
 import {
   Layers, Upload, X, Check, Database, Users, Eye, Trash2, ArrowUpRight,
-  Sheet, AlertCircle, FileSpreadsheet, Calendar, Link, HardDriveDownload
+  Sheet, AlertCircle, FileSpreadsheet, Calendar, Link, HardDriveDownload,
+  ChevronUp, ChevronDown, ChevronsUpDown, Download, CheckSquare, Square,
+  RotateCcw
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import Pagination, { loadPageSize } from '../components/shared/Pagination';
+import ConfirmModal from '../components/shared/ConfirmModal';
 
 const PUBLISHER_FIELDS = [
   { key: 'domain', label: 'Domain *', required: true },
@@ -37,12 +41,20 @@ const LEAD_FIELDS = [
 ];
 
 export default function DataCenter() {
-  const { dataSheets, addDataSheet, deleteDataSheet, mergeDataSheetToDatabase, toast } = useApp();
+  const {
+    dataSheets, addDataSheet, deleteDataSheet, mergeDataSheetToDatabase,
+    mergeSelectedRowsToDatabase, updateDataSheetRows, toast
+  } = useApp();
 
   // Modals / Dialogs states
   const [showUpload, setShowUpload] = useState(false);
-  const [previewSheet, setPreviewSheet] = useState(null); // sheet object to preview
+  const [viewingSheet, setViewingSheet] = useState(null); // full-page sheet viewer
   const [mergingId, setMergingId] = useState(null);
+  const [confirmDeleteSheet, setConfirmDeleteSheet] = useState(null);
+  const [confirmRemerge, setConfirmRemerge] = useState(null);
+
+  // Table sort for sheets list
+  const [sheetSort, setSheetSort] = useState({ key: 'uploadedAt', dir: 'desc' });
 
   // Upload wizard states
   const [wizardStep, setWizardStep] = useState(1); // 1 = Upload & Metadata, 2 = Mapping
@@ -138,7 +150,6 @@ export default function DataCenter() {
 
   const handleMergeSheet = async (sheet) => {
     setMergingId(sheet.id);
-    // Timeout to allow UI animation
     setTimeout(() => {
       const res = mergeDataSheetToDatabase(sheet.id, sheet.targetType);
       setMergingId(null);
@@ -148,6 +159,14 @@ export default function DataCenter() {
         toast('error', 'Merge Failed', res.message || 'Error occurred during merge.');
       }
     }, 800);
+  };
+
+  const handleRemerge = (sheet) => {
+    if (sheet.status !== 'Imported') {
+      setConfirmRemerge(sheet);
+    } else {
+      handleMergeSheet(sheet);
+    }
   };
 
   const resetWizard = () => {
@@ -162,6 +181,27 @@ export default function DataCenter() {
   };
 
   const fieldsToMap = targetType === 'publisher' ? PUBLISHER_FIELDS : LEAD_FIELDS;
+
+  // ── Sort sheets list ──
+  const sortedSheets = useMemo(() => {
+    return [...dataSheets].sort((a, b) => {
+      let av = a[sheetSort.key] ?? '';
+      let bv = b[sheetSort.key] ?? '';
+      if (sheetSort.key === 'rowCount') {
+        return sheetSort.dir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av);
+      }
+      return sheetSort.dir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+    });
+  }, [dataSheets, sheetSort]);
+
+  const toggleSheetSort = (key) => {
+    setSheetSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  };
+
+  const SheetSortIcon = ({ col }) => {
+    if (sheetSort.key !== col) return <ChevronsUpDown className="sort-icon" size={13} />;
+    return sheetSort.dir === 'asc' ? <ChevronUp className="sort-icon active" size={13} /> : <ChevronDown className="sort-icon active" size={13} />;
+  };
 
   return (
     <div>
@@ -181,7 +221,7 @@ export default function DataCenter() {
         </button>
       </div>
 
-      {/* Sheets Grid */}
+      {/* Sheets Table */}
       {dataSheets.length === 0 ? (
         <div style={{
           textAlign: 'center', padding: '60px 20px', background: 'var(--color-bg-card)',
@@ -197,91 +237,104 @@ export default function DataCenter() {
           </button>
         </div>
       ) : (
-        <div className="charts-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: 16 }}>
-          {dataSheets.map(sheet => (
-            <div key={sheet.id} className="card card-pad" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              {/* Header */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
-                <div style={{
-                  width: 40, height: 40, borderRadius: 10,
-                  background: sheet.targetType === 'publisher' ? 'rgba(201,162,77,0.12)' : 'rgba(124,58,237,0.12)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-                }}>
-                  <Sheet size={20} style={{ color: sheet.targetType === 'publisher' ? 'var(--color-accent)' : '#7C3AED' }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={sheet.name}>
-                    {sheet.name}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                    <span style={{
-                      fontSize: '0.68rem', fontWeight: 800, padding: '1px 6px', borderRadius: 4,
-                      background: sheet.targetType === 'publisher' ? '#FEF3C7' : '#F3E8FF',
-                      color: sheet.targetType === 'publisher' ? '#B45309' : '#6D28D9'
-                    }}>
-                      {sheet.targetType === 'publisher' ? 'Publisher DB' : 'CRM Leads'}
-                    </span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>via {sheet.source}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Specs */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '8px 10px', background: 'var(--color-bg-hover)', borderRadius: 8, fontSize: '0.78rem', marginBottom: 14 }}>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)' }}>Records:</span>
-                  <strong style={{ marginLeft: 4, color: 'var(--color-text)' }}>{sheet.rowCount} rows</strong>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)' }}>Status:</span>
-                  <span style={{
-                    marginLeft: 4, fontWeight: 700,
-                    color: sheet.status === 'Imported' ? 'var(--color-accent-hover)' : 'var(--color-success-text)'
-                  }}>
-                    {sheet.status}
-                  </span>
-                </div>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <span style={{ color: 'var(--color-text-muted)' }}>Uploaded:</span>
-                  <strong style={{ marginLeft: 4, color: 'var(--color-text)' }}>{new Date(sheet.uploadedAt).toLocaleDateString()}</strong>
-                </div>
-              </div>
-
-              {/* Footer Actions */}
-              <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
-                <button className="btn btn-outline btn-xs flex-1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }} onClick={() => setPreviewSheet(sheet)}>
-                  <Eye size={12} /> View Raw
-                </button>
-                <button
-                  className="btn btn-primary btn-xs flex-1"
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                    background: sheet.status !== 'Imported' ? 'var(--color-bg-hover)' : '',
-                    color: sheet.status !== 'Imported' ? 'var(--color-text-muted)' : '',
-                    border: sheet.status !== 'Imported' ? '1px solid var(--color-border)' : ''
-                  }}
-                  disabled={sheet.status !== 'Imported' || mergingId === sheet.id}
-                  onClick={() => handleMergeSheet(sheet)}
-                >
-                  {mergingId === sheet.id ? (
-                    <Loader2 className="animate-spin" size={12} />
-                  ) : (
-                    <HardDriveDownload size={12} />
-                  )}
-                  {sheet.status === 'Imported' ? 'Merge DB' : 'Merged'}
-                </button>
-                <button
-                  className="btn btn-outline btn-xs"
-                  style={{ color: 'var(--color-danger-text)' }}
-                  onClick={() => {
-                    if (confirm(`Remove sheet "${sheet.name}"?`)) deleteDataSheet(sheet.id);
-                  }}
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="table-container" style={{ marginTop: 10 }}>
+          <div className="table-scroll-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th onClick={() => toggleSheetSort('name')} style={{ cursor: 'pointer' }}>
+                    <div className="th-inner">Name <SheetSortIcon col="name" /></div>
+                  </th>
+                  <th onClick={() => toggleSheetSort('targetType')} style={{ cursor: 'pointer' }}>
+                    <div className="th-inner">Type <SheetSortIcon col="targetType" /></div>
+                  </th>
+                  <th onClick={() => toggleSheetSort('source')} style={{ cursor: 'pointer' }}>
+                    <div className="th-inner">Source <SheetSortIcon col="source" /></div>
+                  </th>
+                  <th onClick={() => toggleSheetSort('rowCount')} style={{ cursor: 'pointer' }}>
+                    <div className="th-inner">Rows <SheetSortIcon col="rowCount" /></div>
+                  </th>
+                  <th onClick={() => toggleSheetSort('status')} style={{ cursor: 'pointer' }}>
+                    <div className="th-inner">Status <SheetSortIcon col="status" /></div>
+                  </th>
+                  <th onClick={() => toggleSheetSort('uploadedAt')} style={{ cursor: 'pointer' }}>
+                    <div className="th-inner">Uploaded <SheetSortIcon col="uploadedAt" /></div>
+                  </th>
+                  <th style={{ width: 200, textAlign: 'center' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedSheets.map(sheet => (
+                  <tr key={sheet.id}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Sheet size={16} style={{ color: sheet.targetType === 'publisher' ? 'var(--color-accent)' : '#7C3AED', flexShrink: 0 }} />
+                        <span style={{ fontWeight: 600, fontSize: '0.85rem' }} title={sheet.name}>
+                          {sheet.name.length > 35 ? sheet.name.slice(0, 35) + '…' : sheet.name}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <span style={{
+                        fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: 4,
+                        background: sheet.targetType === 'publisher' ? '#FEF3C7' : '#F3E8FF',
+                        color: sheet.targetType === 'publisher' ? '#B45309' : '#6D28D9'
+                      }}>
+                        {sheet.targetType === 'publisher' ? 'Publisher DB' : 'CRM Leads'}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)' }}>{sheet.source}</td>
+                    <td>
+                      <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{sheet.rowCount}</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', marginLeft: 4 }}>rows</span>
+                    </td>
+                    <td>
+                      <span style={{
+                        fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                        background: sheet.status === 'Imported' ? 'rgba(201,162,77,0.12)' : 'rgba(34,197,94,0.1)',
+                        color: sheet.status === 'Imported' ? 'var(--color-accent)' : '#16A34A'
+                      }}>
+                        {sheet.status}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                      {new Date(sheet.uploadedAt).toLocaleDateString()}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                        <button className="btn btn-outline btn-xs" onClick={() => setViewingSheet(sheet)} title="View Raw Data">
+                          <Eye size={12} /> View
+                        </button>
+                        <button
+                          className="btn btn-primary btn-xs"
+                          disabled={mergingId === sheet.id}
+                          onClick={() => handleRemerge(sheet)}
+                          title={sheet.status !== 'Imported' ? 'Re-merge (skips duplicates)' : 'Merge to Database'}
+                        >
+                          {mergingId === sheet.id ? (
+                            <Spinner size={12} />
+                          ) : sheet.status !== 'Imported' ? (
+                            <RotateCcw size={12} />
+                          ) : (
+                            <HardDriveDownload size={12} />
+                          )}
+                          {sheet.status === 'Imported' ? 'Merge' : 'Re-merge'}
+                        </button>
+                        <button
+                          className="btn btn-outline btn-xs"
+                          style={{ color: 'var(--color-danger-text)' }}
+                          onClick={() => setConfirmDeleteSheet(sheet)}
+                          title="Delete Sheet"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -413,58 +466,307 @@ export default function DataCenter() {
         </div>
       )}
 
-      {/* ─── MODAL: SHEET PREVIEW ─── */}
-      {previewSheet && (
-        <div className="modal-backdrop" onClick={() => setPreviewSheet(null)}>
-          <div className="modal modal-xl animate-scale-in" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">Raw Data Preview: {previewSheet.name}</h2>
-              <button className="modal-close" onClick={() => setPreviewSheet(null)}><X size={18} /></button>
-            </div>
-            <div className="modal-body" style={{ padding: 0 }}>
-              <div style={{ padding: '10px 16px', background: 'var(--color-bg-hover)', fontSize: '0.78rem', borderBottom: '1px solid var(--color-border)' }}>
-                Showing first 50 rows of {previewSheet.rowCount} total records. Mapped database type: <strong>{previewSheet.targetType === 'publisher' ? 'Publisher Database' : 'CRM Leads'}</strong>
+      {/* ─── FULL-PAGE SHEET VIEWER ─── */}
+      {viewingSheet && (
+        <SheetViewer
+          sheet={viewingSheet}
+          onClose={() => setViewingSheet(null)}
+          mergeSelectedRowsToDatabase={mergeSelectedRowsToDatabase}
+          updateDataSheetRows={updateDataSheetRows}
+          toast={toast}
+        />
+      )}
+
+      {/* ─── Confirm Delete Sheet ─── */}
+      {confirmDeleteSheet && (
+        <ConfirmModal
+          title={`Delete "${confirmDeleteSheet.name}"?`}
+          message="This will permanently remove the sheet from the Data Center. Rows already merged into the database will remain."
+          confirmLabel="Delete Sheet"
+          onConfirm={() => { deleteDataSheet(confirmDeleteSheet.id); setConfirmDeleteSheet(null); toast('success', 'Deleted', 'Sheet removed from Data Center.'); }}
+          onCancel={() => setConfirmDeleteSheet(null)}
+        />
+      )}
+
+      {/* ─── Confirm Re-merge ─── */}
+      {confirmRemerge && (
+        <ConfirmModal
+          title={`Re-merge "${confirmRemerge.name}"?`}
+          message="This sheet was already merged. Re-merging will skip existing duplicates and only add new records."
+          confirmLabel="Re-merge"
+          onConfirm={() => { handleMergeSheet(confirmRemerge); setConfirmRemerge(null); }}
+          onCancel={() => setConfirmRemerge(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Full-Page Sheet Viewer Component ───────────────────────────────────────
+function SheetViewer({ sheet, onClose, mergeSelectedRowsToDatabase, updateDataSheetRows, toast }) {
+  // Safe fallback for columns — fixes white screen crash
+  const cols = useMemo(() => {
+    return sheet.columns || sheet.headers || Object.keys(sheet.rows?.[0] || {});
+  }, [sheet]);
+
+  const rows = sheet.rows || [];
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => loadPageSize('lm_dc_viewer_page_size', 50));
+  const [selected, setSelected] = useState(new Set()); // Set of row indices
+  const [selectAllRows, setSelectAllRows] = useState(false);
+  const [search, setSearch] = useState('');
+  const [confirmDeleteRows, setConfirmDeleteRows] = useState(false);
+  const [importTarget, setImportTarget] = useState(null); // 'publisher' | 'lead' | null
+
+  // Filter rows by search
+  const filteredRows = useMemo(() => {
+    if (!search.trim()) return rows.map((r, i) => ({ ...r, _idx: i }));
+    const q = search.toLowerCase();
+    return rows
+      .map((r, i) => ({ ...r, _idx: i }))
+      .filter(r => cols.some(c => String(r[c] || '').toLowerCase().includes(q)));
+  }, [rows, cols, search]);
+
+  const effectivePageSize = pageSize === 'all' ? filteredRows.length || 1 : pageSize;
+  const pageData = pageSize === 'all' ? filteredRows : filteredRows.slice((page - 1) * effectivePageSize, page * effectivePageSize);
+
+  const toggleSelect = (idx) => {
+    setSelected(prev => {
+      const n = new Set(prev);
+      n.has(idx) ? n.delete(idx) : n.add(idx);
+      return n;
+    });
+    setSelectAllRows(false);
+  };
+
+  const toggleAllPage = () => {
+    if (selectAllRows || selected.size === pageData.length) {
+      setSelected(new Set());
+      setSelectAllRows(false);
+    } else {
+      setSelected(new Set(pageData.map(r => r._idx)));
+      setSelectAllRows(false);
+    }
+  };
+
+  const handleSelectAllFiltered = () => {
+    setSelected(new Set(filteredRows.map(r => r._idx)));
+    setSelectAllRows(true);
+  };
+
+  const handleClearSelection = () => {
+    setSelected(new Set());
+    setSelectAllRows(false);
+  };
+
+  const handleDeleteSelectedRows = () => {
+    const indicesToDelete = new Set(selected);
+    const newRows = rows.filter((_, i) => !indicesToDelete.has(i));
+    updateDataSheetRows(sheet.id, newRows);
+    toast('success', 'Rows Deleted', `${selected.size} rows removed from sheet.`);
+    setSelected(new Set());
+    setSelectAllRows(false);
+    setConfirmDeleteRows(false);
+  };
+
+  const handleImportSelected = (targetType) => {
+    const selectedIndices = [...selected];
+    const res = mergeSelectedRowsToDatabase(sheet.id, selectedIndices, targetType);
+    if (res.status === 'ok') {
+      toast('success', 'Import Complete', `${res.added} records imported to ${targetType === 'publisher' ? 'Publishers' : 'CRM Leads'}. (${res.skipped} duplicates skipped)`);
+    } else {
+      toast('error', 'Import Failed', res.message || 'Error occurred during import.');
+    }
+    setImportTarget(null);
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 2000 }}>
+      <div
+        className="animate-scale-in"
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: '95vw', maxWidth: 1400, height: '90vh',
+          background: 'var(--color-bg-card)', borderRadius: 12,
+          display: 'flex', flexDirection: 'column',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+          overflow: 'hidden'
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          padding: '14px 20px', borderBottom: '1px solid var(--color-border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexShrink: 0, flexWrap: 'wrap', gap: 10
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Sheet size={18} style={{ color: sheet.targetType === 'publisher' ? 'var(--color-accent)' : '#7C3AED' }} />
+            <div>
+              <h2 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>{sheet.name}</h2>
+              <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', display: 'flex', gap: 10, marginTop: 2 }}>
+                <span>{rows.length} total rows</span>
+                <span>•</span>
+                <span>{cols.length} columns</span>
+                <span>•</span>
+                <span style={{
+                  fontWeight: 700,
+                  color: sheet.targetType === 'publisher' ? '#B45309' : '#6D28D9'
+                }}>
+                  {sheet.targetType === 'publisher' ? 'Publisher DB' : 'CRM Leads'}
+                </span>
               </div>
-              <div className="table-container" style={{ maxHeight: 400, overflowY: 'auto' }}>
-                <table style={{ margin: 0 }}>
-                  <thead>
-                    <tr>
-                      {previewSheet.columns.map(col => (
-                        <th key={col} style={{ background: 'var(--color-bg-hover)', fontSize: '0.74rem', whiteSpace: 'nowrap' }}>
-                          {col}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewSheet.rows.slice(0, 50).map((row, idx) => (
-                      <tr key={idx}>
-                        {previewSheet.columns.map(col => (
-                          <td key={col} style={{ fontSize: '0.78rem', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 180 }}>
-                            {row[col] || '—'}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-outline" onClick={() => setPreviewSheet(null)}>Close</button>
             </div>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Search */}
+            <div style={{ position: 'relative' }}>
+              <input
+                className="search-input"
+                placeholder="Search rows..."
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); setSelected(new Set()); setSelectAllRows(false); }}
+                style={{ fontSize: '0.8rem', padding: '5px 10px', width: 180 }}
+              />
+            </div>
+            <button className="modal-close" onClick={onClose} style={{ position: 'static' }}><X size={18} /></button>
+          </div>
         </div>
+
+        {/* Selection Actions Bar */}
+        {selected.size > 0 && (
+          <div style={{
+            padding: '8px 20px', background: 'linear-gradient(135deg, rgba(201,162,77,0.15) 0%, rgba(124,58,237,0.1) 100%)',
+            borderBottom: '1px solid var(--color-border)',
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            flexShrink: 0
+          }}>
+            <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--color-text)' }}>
+              {selected.size} of {filteredRows.length} rows selected
+            </span>
+
+            {/* Select All Filtered */}
+            {selected.size === pageData.length && !selectAllRows && filteredRows.length > pageData.length && (
+              <button className="btn btn-xs" onClick={handleSelectAllFiltered}
+                style={{ background: 'var(--color-accent)', color: '#fff', border: 'none', fontSize: '0.72rem' }}>
+                Select all {filteredRows.length} rows
+              </button>
+            )}
+
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button className="btn btn-xs btn-primary" onClick={() => setImportTarget('publisher')}
+                style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Database size={12} /> Import to Publishers
+              </button>
+              <button className="btn btn-xs" onClick={() => setImportTarget('lead')}
+                style={{ background: '#7C3AED', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Users size={12} /> Import to CRM
+              </button>
+              <button className="btn btn-xs" onClick={() => setConfirmDeleteRows(true)}
+                style={{ background: 'rgba(239,68,68,0.8)', color: '#fff', border: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Trash2 size={12} /> Delete Rows
+              </button>
+              <button className="btn btn-xs btn-ghost" onClick={handleClearSelection}
+                style={{ fontSize: '0.72rem' }}>
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Table */}
+        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto' }}>
+          <table style={{ margin: 0, fontSize: '0.8rem' }}>
+            <thead>
+              <tr>
+                <th style={{ width: 40, position: 'sticky', top: 0, background: 'var(--color-bg-hover)', zIndex: 2 }}>
+                  <input type="checkbox" className="checkbox"
+                    checked={pageData.length > 0 && (selectAllRows || selected.size === pageData.length)}
+                    onChange={toggleAllPage} />
+                </th>
+                <th style={{ width: 40, position: 'sticky', top: 0, background: 'var(--color-bg-hover)', zIndex: 2, fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>#</th>
+                {cols.map(col => (
+                  <th key={col} style={{
+                    position: 'sticky', top: 0, background: 'var(--color-bg-hover)', zIndex: 2,
+                    whiteSpace: 'nowrap', fontSize: '0.74rem'
+                  }}>
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pageData.length === 0 ? (
+                <tr><td colSpan={cols.length + 2} style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-muted)' }}>
+                  {search ? 'No rows match your search.' : 'No data rows.'}
+                </td></tr>
+              ) : pageData.map((row) => (
+                <tr key={row._idx}
+                  className={selected.has(row._idx) ? 'selected' : ''}
+                  onClick={() => toggleSelect(row._idx)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <td className="cell-check" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" className="checkbox"
+                      checked={selected.has(row._idx)}
+                      onChange={() => toggleSelect(row._idx)} />
+                  </td>
+                  <td style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)', textAlign: 'center' }}>{row._idx + 1}</td>
+                  {cols.map(col => (
+                    <td key={col} style={{ whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: 200 }}>
+                      {row[col] || '—'}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer / Pagination */}
+        <div style={{ flexShrink: 0 }}>
+          <Pagination
+            total={filteredRows.length}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            entityName="rows"
+            pageSizeKey="lm_dc_viewer_page_size"
+            pageSizeOptions={[25, 50, 100, 250]}
+          />
+        </div>
+      </div>
+
+      {/* Confirm Delete Rows */}
+      {confirmDeleteRows && (
+        <ConfirmModal
+          title={`Delete ${selected.size} Rows?`}
+          message="These rows will be removed from the sheet. This cannot be undone."
+          confirmLabel="Delete Rows"
+          onConfirm={handleDeleteSelectedRows}
+          onCancel={() => setConfirmDeleteRows(false)}
+        />
+      )}
+
+      {/* Confirm Import */}
+      {importTarget && (
+        <ConfirmModal
+          title={`Import ${selected.size} Rows to ${importTarget === 'publisher' ? 'Publishers' : 'CRM Leads'}?`}
+          message={`The selected ${selected.size} rows will be mapped and imported. Existing duplicates will be skipped.`}
+          confirmLabel={`Import to ${importTarget === 'publisher' ? 'Publishers' : 'CRM'}`}
+          onConfirm={() => handleImportSelected(importTarget)}
+          onCancel={() => setImportTarget(null)}
+        />
       )}
     </div>
   );
 }
 
 // ─── Tiny Helper Spinner ───
-function Loader2({ className, size }) {
+function Spinner({ size }) {
   return (
     <span
-      className={className}
       style={{
         display: 'inline-block',
         width: size || 12,

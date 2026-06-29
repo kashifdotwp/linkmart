@@ -407,6 +407,59 @@ export const AppProvider = ({ children }) => {
     return { status: 'ok', ...result };
   }, [dataSheets, importPublishers, importLeads]);
 
+  // Merge only selected rows from a sheet into database
+  const mergeSelectedRowsToDatabase = useCallback((sheetId, selectedIndices, targetType) => {
+    const sheet = dataSheets.find(s => s.id === sheetId);
+    if (!sheet) return { status: 'error', message: 'Sheet not found' };
+
+    const { rows, mappings } = sheet;
+    const selectedRows = selectedIndices.map(i => rows[i]).filter(Boolean);
+    if (selectedRows.length === 0) return { status: 'error', message: 'No rows selected' };
+
+    const mappedRecords = selectedRows.map(row => {
+      const record = {};
+      Object.keys(mappings).forEach(targetKey => {
+        const csvHeader = mappings[targetKey];
+        if (csvHeader) record[targetKey] = row[csvHeader] ?? '';
+      });
+      return record;
+    });
+
+    let result;
+    if (targetType === 'publisher') {
+      const cleanedRecords = mappedRecords.map(rec => ({
+        ...rec, dr: rec.dr ? Number(rec.dr) || '' : '', da: rec.da ? Number(rec.da) || '' : '',
+        organicTraffic: rec.organicTraffic ? Number(rec.organicTraffic) || '' : '',
+        referringDomains: rec.referringDomains ? Number(rec.referringDomains) || '' : '',
+        backlinks: rec.backlinks ? Number(rec.backlinks) || '' : '',
+        spamScore: rec.spamScore ? Number(rec.spamScore) || '' : '',
+        sellerPrice: rec.sellerPrice ? Number(rec.sellerPrice) || '' : '',
+        clientPrice: rec.clientPrice ? Number(rec.clientPrice) || '' : '',
+        status: rec.status || 'Active',
+      }));
+      result = importPublishers(cleanedRecords);
+    } else {
+      const cleanedRecords = mappedRecords.map(rec => ({
+        ...rec, dr: rec.dr ? Number(rec.dr) || '' : '',
+        organicTraffic: rec.organicTraffic ? Number(rec.organicTraffic) || '' : '',
+        avgSerpPosition: rec.avgSerpPosition ? Number(rec.avgSerpPosition) || '' : '',
+        status: rec.status || 'New',
+      }));
+      result = importLeads(cleanedRecords);
+    }
+
+    logActivity('sheet_partial_merge', `Merged ${result.added} of ${selectedRows.length} selected rows from "${sheet.name}" into ${targetType === 'publisher' ? 'Publishers' : 'CRM Leads'}`);
+    return { status: 'ok', ...result };
+  }, [dataSheets, importPublishers, importLeads]);
+
+  // Update rows in a data sheet (e.g., delete selected rows)
+  const updateDataSheetRows = useCallback((sheetId, newRows) => {
+    const updatedSheets = dataSheets.map(s => s.id === sheetId ? { ...s, rows: newRows, rowCount: newRows.length } : s);
+    saveDataSheets(updatedSheets);
+    const updatedSheet = updatedSheets.find(s => s.id === sheetId);
+    if (updatedSheet) db.dataSheets.upsert(updatedSheet).catch(e => syncWarn('updateDataSheetRows', e));
+  }, [dataSheets]);
+
   // ── Activity Log ──
   const [activity, setActivity] = useState(() => {
     const stored = getStorage('lm_activity', null);
@@ -654,7 +707,7 @@ export const AppProvider = ({ children }) => {
       // Email History
       emailHistory, addEmailHistory, getEmailHistoryForRecord,
       // Data Sheets
-      dataSheets, addDataSheet, deleteDataSheet, mergeDataSheetToDatabase,
+      dataSheets, addDataSheet, deleteDataSheet, mergeDataSheetToDatabase, mergeSelectedRowsToDatabase, updateDataSheetRows,
       // Activity
       activity, logActivity,
       // Supabase Sync

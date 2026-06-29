@@ -13,12 +13,12 @@ import ExportModal from '../shared/ExportModal';
 import ImportModal from '../shared/ImportModal';
 import PublisherForm from './PublisherForm';
 import PublisherPanel from './PublisherPanel';
+import Pagination, { loadPageSize } from '../shared/Pagination';
 import { TagList } from '../shared/TagBadge';
 import { formatNumber, formatCurrency, formatDate, getStorage, setStorage } from '../../utils/helpers';
 
 const ATTR_COLORS = { Dofollow: '#22C55E', Nofollow: '#9CA3AF', Sponsored: '#F59E0B', UGC: '#3B82F6' };
 const ATTR_BG = { Dofollow: '#DCFCE7', Nofollow: '#F3F4F6', Sponsored: '#FEF3C7', UGC: '#DBEAFE' };
-const PAGE_SIZE = 25;
 
 const ALL_COLUMNS = [
   { key: 'domain', label: 'Domain' },
@@ -81,7 +81,10 @@ export default function PublisherTable() {
   const [showFilters, setShowFilters] = useState(false);
   const [sort, setSort] = useState({ key: 'lastUpdated', dir: 'desc' });
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => loadPageSize('lm_pub_page_size', 25));
   const [selected, setSelected] = useState(new Set());
+  const [selectAllFiltered, setSelectAllFiltered] = useState(false);
+  const [showExportSelected, setShowExportSelected] = useState(false);
   const [visibleCols, setVisibleCols] = useState(() => getStorage('lm_pub_cols', DEFAULT_VISIBLE));
   const [showColPanel, setShowColPanel] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -92,6 +95,8 @@ export default function PublisherTable() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [bulkStatusVal, setBulkStatusVal] = useState('');
   const [showBulkStatus, setShowBulkStatus] = useState(false);
+
+  const effectivePageSize = pageSize === 'all' ? filtered.length || 1 : pageSize;
 
   const setF = (key, val) => { setFilters(f => ({ ...f, [key]: val })); setPage(1); };
   const saveVisibleCols = (cols) => { setVisibleCols(cols); setStorage('lm_pub_cols', cols); };
@@ -168,18 +173,46 @@ export default function PublisherTable() {
     return data;
   }, [publishers, country, search, filters, sort]);
 
-  const pageData = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageData = pageSize === 'all' ? filtered : filtered.slice((page - 1) * effectivePageSize, page * effectivePageSize);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / effectivePageSize));
   const columns = ALL_COLUMNS.filter(c => visibleCols.includes(c.key));
+
+  // Summary stats for filtered data
+  const summaryStats = useMemo(() => {
+    const starredCount = filtered.filter(p => p.starred).length;
+    const totalSeller = filtered.reduce((s, p) => s + (Number(p.sellerPrice) || 0), 0);
+    const totalClient = filtered.reduce((s, p) => s + (Number(p.clientPrice) || 0), 0);
+    const totalProfit = filtered.reduce((s, p) => s + (Number(p.profit) || 0), 0);
+    return { starredCount, totalSeller, totalClient, totalProfit };
+  }, [filtered]);
 
   const toggleSort = (key) => {
     setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
     setPage(1);
   };
-  const toggleSelect = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleAll = () => { if (selected.size === pageData.length) setSelected(new Set()); else setSelected(new Set(pageData.map(p => p.id))); };
+  const toggleSelect = (id) => { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); setSelectAllFiltered(false); };
+  const toggleAll = () => {
+    if (selectAllFiltered || selected.size === pageData.length) {
+      setSelected(new Set());
+      setSelectAllFiltered(false);
+    } else {
+      setSelected(new Set(pageData.map(p => p.id)));
+      setSelectAllFiltered(false);
+    }
+  };
+  const handleSelectAllFiltered = () => {
+    setSelected(new Set(filtered.map(p => p.id)));
+    setSelectAllFiltered(true);
+  };
+  const handleClearSelection = () => { setSelected(new Set()); setSelectAllFiltered(false); };
 
-  const handleBulkDelete = () => { bulkDeletePublishers([...selected]); setSelected(new Set()); toast('success', 'Deleted', `${selected.size} websites deleted.`); };
+  // Data for Export Selected
+  const selectedData = useMemo(() => {
+    if (selected.size === 0) return [];
+    return filtered.filter(p => selected.has(p.id));
+  }, [filtered, selected]);
+
+  const handleBulkDelete = () => { bulkDeletePublishers([...selected]); setSelected(new Set()); setSelectAllFiltered(false); toast('success', 'Deleted', `${selected.size} websites deleted.`); };
   const handleBulkStatus = () => {
     if (!bulkStatusVal) return;
     bulkUpdatePublisherStatus([...selected], bulkStatusVal);
@@ -482,27 +515,83 @@ export default function PublisherTable() {
 
       {/* Bulk Actions */}
       {selected.size > 0 && (
-        <div className="bulk-actions-bar" style={{ marginBottom: 12 }}>
-          <span className="bulk-selected-count">{selected.size} selected</span>
-          <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none' }}
-            onClick={() => setShowBulkStatus(o => !o)} id="pub-bulk-status-btn">Update Status</button>
-          {showBulkStatus && (
-            <div style={{ display: 'flex', gap: 6 }}>
-              <select className="form-select" style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}
-                value={bulkStatusVal} onChange={e => setBulkStatusVal(e.target.value)}>
-                <option value="">Select status...</option>
-                {PUBLISHER_STATUSES.map(s => <option key={s}>{s}</option>)}
-              </select>
-              <button className="btn btn-sm" style={{ background: 'var(--color-accent)', color: '#fff', border: 'none' }} onClick={handleBulkStatus}>Apply</button>
+        <>
+          {/* Select All Filtered Banner */}
+          {selected.size === pageData.length && !selectAllFiltered && filtered.length > pageData.length && (
+            <div style={{
+              padding: '8px 16px', background: 'rgba(201,162,77,0.1)', border: '1px solid rgba(201,162,77,0.3)',
+              borderRadius: 8, marginBottom: 8, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 8,
+              color: 'var(--color-text)'
+            }}>
+              <span>All <strong>{pageData.length}</strong> websites on this page are selected.</span>
+              <button
+                className="btn btn-sm" style={{ background: 'var(--color-accent)', color: '#fff', border: 'none', padding: '3px 10px', fontSize: '0.78rem' }}
+                onClick={handleSelectAllFiltered}
+              >
+                Select all {filtered.length} websites
+              </button>
             </div>
           )}
-          <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.8)', color: '#fff', border: 'none', marginLeft: 'auto' }}
-            onClick={() => setConfirmDelete('bulk')} id="pub-bulk-delete-btn"><Trash2 size={13} /> Delete</button>
-          <button className="btn btn-ghost btn-sm" style={{ color: 'rgba(255,255,255,0.7)' }} onClick={() => setSelected(new Set())}>Clear</button>
-        </div>
+          {selectAllFiltered && (
+            <div style={{
+              padding: '8px 16px', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.3)',
+              borderRadius: 8, marginBottom: 8, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 8,
+              color: 'var(--color-text)'
+            }}>
+              <span>All <strong>{filtered.length}</strong> websites are selected.</span>
+              <button
+                className="btn btn-sm btn-ghost" style={{ fontSize: '0.78rem', padding: '3px 10px' }}
+                onClick={handleClearSelection}
+              >
+                Clear selection
+              </button>
+            </div>
+          )}
+
+          {/* Bulk Actions Bar */}
+          <div className="bulk-actions-bar" style={{ marginBottom: 12 }}>
+            <span className="bulk-selected-count">{selected.size} selected</span>
+            <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none' }}
+              onClick={() => setShowBulkStatus(o => !o)} id="pub-bulk-status-btn">Update Status</button>
+            {showBulkStatus && (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <select className="form-select" style={{ padding: '4px 8px', fontSize: '0.8rem', width: 'auto' }}
+                  value={bulkStatusVal} onChange={e => setBulkStatusVal(e.target.value)}>
+                  <option value="">Select status...</option>
+                  {PUBLISHER_STATUSES.map(s => <option key={s}>{s}</option>)}
+                </select>
+                <button className="btn btn-sm" style={{ background: 'var(--color-accent)', color: '#fff', border: 'none' }} onClick={handleBulkStatus}>Apply</button>
+              </div>
+            )}
+            <button className="btn btn-sm" style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none' }}
+              onClick={() => setShowExportSelected(true)} id="pub-bulk-export-btn">
+              <Download size={13} /> Export Selected
+            </button>
+            <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.8)', color: '#fff', border: 'none', marginLeft: 'auto' }}
+              onClick={() => setConfirmDelete('bulk')} id="pub-bulk-delete-btn"><Trash2 size={13} /> Delete</button>
+            <button className="btn btn-ghost btn-sm" style={{ color: 'rgba(255,255,255,0.7)' }} onClick={handleClearSelection}>Clear</button>
+          </div>
+        </>
       )}
 
       {/* Table */}
+      {/* Summary Stats Row */}
+      {filtered.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 16, padding: '8px 16px',
+          background: 'var(--color-bg-hover)', borderRadius: 8, marginBottom: 10,
+          fontSize: '0.78rem', color: 'var(--color-text-secondary)', flexWrap: 'wrap'
+        }}>
+          <span>📊 <strong style={{ color: 'var(--color-text)' }}>{filtered.length}</strong> websites</span>
+          {summaryStats.starredCount > 0 && <span>⭐ <strong style={{ color: '#F59E0B' }}>{summaryStats.starredCount}</strong> starred</span>}
+          <span>💰 Seller: <strong style={{ color: 'var(--color-text)' }}>{formatCurrency(summaryStats.totalSeller)}</strong></span>
+          <span>💵 Revenue: <strong style={{ color: 'var(--color-text)' }}>{formatCurrency(summaryStats.totalClient)}</strong></span>
+          <span style={{ color: summaryStats.totalProfit >= 0 ? '#22C55E' : '#EF4444' }}>
+            📈 Profit: <strong>{summaryStats.totalProfit >= 0 ? '+' : ''}{formatCurrency(summaryStats.totalProfit)}</strong>
+          </span>
+        </div>
+      )}
+
       <div className="table-container">
         <div className="table-scroll-wrap">
           <table>
@@ -510,7 +599,7 @@ export default function PublisherTable() {
               <tr>
                 <th className="cell-check">
                   <input type="checkbox" className="checkbox" id="pub-select-all"
-                    checked={pageData.length > 0 && selected.size === pageData.length} onChange={toggleAll} />
+                    checked={pageData.length > 0 && (selectAllFiltered || selected.size === pageData.length)} onChange={toggleAll} />
                 </th>
                 <th style={{ width: 32 }} title="Starred">⭐</th>
                 {columns.map(col => (
@@ -554,23 +643,16 @@ export default function PublisherTable() {
         </div>
 
         {/* Pagination */}
-        <div className="table-footer">
-          <span className="table-count">
-            Showing {filtered.length === 0 ? 0 : Math.min((page - 1) * PAGE_SIZE + 1, filtered.length)}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length} websites
-            {activeFilterCount > 0 && ` (filtered from ${publishers.length})`}
-          </span>
-          <div className="pagination">
-            <button className="page-btn" disabled={page === 1} onClick={() => setPage(1)}>«</button>
-            <button className="page-btn" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹</button>
-            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              const p = page <= 3 ? i + 1 : page - 2 + i;
-              if (p > totalPages) return null;
-              return <button key={p} className={`page-btn ${p === page ? 'active' : ''}`} onClick={() => setPage(p)}>{p}</button>;
-            })}
-            <button className="page-btn" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>›</button>
-            <button className="page-btn" disabled={page === totalPages} onClick={() => setPage(totalPages)}>»</button>
-          </div>
-        </div>
+        <Pagination
+          total={filtered.length}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          filteredFrom={activeFilterCount > 0 ? publishers.length : null}
+          entityName="websites"
+          pageSizeKey="lm_pub_page_size"
+        />
       </div>
 
       {/* Modals & Panels */}
@@ -582,6 +664,7 @@ export default function PublisherTable() {
           onDelete={() => handleDeleteOne(panelPub)} />
       )}
       {showExport && <ExportModal columns={ALL_COLUMNS} data={filtered} filename="publishers.csv" onClose={() => setShowExport(false)} />}
+      {showExportSelected && <ExportModal columns={ALL_COLUMNS} data={selectedData} filename="publishers_selected.csv" onClose={() => setShowExportSelected(false)} />}
       {showImport && <ImportModal systemFields={IMPORT_FIELDS} onImport={handleImport} onClose={() => setShowImport(false)} entityName="websites" />}
       {confirmDelete === 'bulk' && (
         <ConfirmModal title={`Delete ${selected.size} Websites?`} message="This cannot be undone." confirmLabel="Delete All"
